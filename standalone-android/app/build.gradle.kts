@@ -20,7 +20,11 @@ android {
         }
 
         python {
-            buildPython("C:/Users/Min/AppData/Local/Programs/Python/Python311/python.exe")
+            // CI 环境用 python3，本地开发用绝对路径
+            val pythonPath = project.findProperty("pythonPath") as? String
+                ?: System.getenv("PYTHON_PATH")
+                ?: "python3"
+            buildPython(pythonPath)
             pip {
                 install("yt-dlp>=2024.0")
                 install("requests>=2.28")
