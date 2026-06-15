@@ -1,7 +1,7 @@
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
-    id("com.chaquo.python") version "16.0.0"
+    id("com.chaquo.python") version "15.0.1"
 }
 
 android {
@@ -20,14 +20,10 @@ android {
         }
 
         python {
-            // CI 环境用 python3，本地开发用绝对路径
-            val pythonPath = project.findProperty("pythonPath") as? String
-                ?: System.getenv("PYTHON_PATH")
-                ?: "python3"
-            buildPython(pythonPath)
+            buildPython(System.getenv("PYTHON_PATH") ?: "python3")
             pip {
-                install("yt-dlp>=2024.0")
-                install("requests>=2.28")
+                install("yt-dlp")
+                install("requests")
             }
         }
     }

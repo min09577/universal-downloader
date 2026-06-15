@@ -46,7 +46,7 @@ jobs:
         working-directory: standalone-android
         run: |
           sudo apt-get update -qq && sudo apt-get install -y -qq gradle
-          gradle wrapper --gradle-version 8.7
+          gradle wrapper --gradle-version 8.4
 
       - name: Configure project
         working-directory: standalone-android
@@ -60,8 +60,16 @@ jobs:
           PYTHON_PATH: ${{ env.PYTHON_PATH }}
           ANDROID_HOME: ${{ env.ANDROID_HOME }}
         run: |
-          echo "Building with Python: $PYTHON_PATH"
-          ./gradlew assembleDebug --no-daemon --stacktrace
+          echo "=== Environment ==="
+          echo "PYTHON_PATH=$PYTHON_PATH"
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          python3 --version
+          echo "=== Test Chaquopy Maven access ==="
+          curl -sI https://chaquo.com/maven/com/chaquo/python/gradle-plugin/15.0.1/gradle-plugin-15.0.1.pom | head -5
+          echo "=== Resolving dependencies ==="
+          ./gradlew dependencies --no-daemon 2>&1 | tail -30
+          echo "=== Building ==="
+          ./gradlew assembleDebug --no-daemon 2>&1 | tail -100
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
