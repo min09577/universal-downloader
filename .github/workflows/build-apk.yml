@@ -34,14 +34,6 @@ jobs:
         with:
           packages: 'platforms;android-34 build-tools;34.0.0 ndk;26.1.10909125'
 
-      - name: Verify environment
-        run: |
-          echo "JAVA_HOME=$JAVA_HOME"
-          echo "ANDROID_HOME=$ANDROID_HOME"
-          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
-          echo "PYTHON=$(which python3) -> $(python3 --version)"
-          java -version
-
       - name: Generate Gradle wrapper
         working-directory: standalone-android
         run: |
@@ -54,53 +46,35 @@ jobs:
           echo "sdk.dir=$ANDROID_HOME" > local.properties
           echo "PYTHON_PATH=$(which python3)" >> $GITHUB_ENV
 
-      - name: Build debug APK
+      - name: Build APK
         working-directory: standalone-android
         env:
           PYTHON_PATH: ${{ env.PYTHON_PATH }}
-          ANDROID_HOME: ${{ env.ANDROID_HOME }}
-        run: |
-          echo "=== Environment ==="
-          echo "PYTHON_PATH=$PYTHON_PATH"
-          echo "ANDROID_HOME=$ANDROID_HOME"
-          python3 --version
-          echo "=== Test Chaquopy Maven access ==="
-          curl -sI https://chaquo.com/maven/com/chaquo/python/gradle-plugin/15.0.1/gradle-plugin-15.0.1.pom | head -5
-          echo "=== Resolving dependencies ==="
-          ./gradlew dependencies --no-daemon 2>&1 | tail -30
-          echo "=== Building ==="
-          ./gradlew assembleDebug --no-daemon 2>&1 | tail -100
+        run: ./gradlew assembleDebug --no-daemon
 
-      - name: Upload debug APK
+      - name: Collect APK
+        run: |
+          echo "=== Searching for APK files ==="
+          find . -name "*.apk" -type f 2>/dev/null || echo "No APK found"
+          mkdir -p output
+          APK=$(find standalone-android -name "*.apk" -type f 2>/dev/null | head -1)
+          if [ -n "$APK" ] && [ -f "$APK" ]; then
+            cp "$APK" output/universal-downloader.apk
+            ls -lh output/universal-downloader.apk
+            echo "APK_FOUND=true" >> $GITHUB_ENV
+          else
+            echo "APK_FOUND=false" >> $GITHUB_ENV
+          fi
+
+      - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: universal-downloader-debug
-          path: standalone-android/app/build/outputs/apk/debug/*.apk
-          retention-days: 30
-
-      - name: Build release APK
-        working-directory: standalone-android
-        env:
-          PYTHON_PATH: ${{ env.PYTHON_PATH }}
-        run: |
-          keytool -genkey -v -keystore debug.keystore -alias upload \
-            -keyalg RSA -keysize 2048 -validity 10000 \
-            -storepass android -keypass android \
-            -dname "CN=UD,OU=Dev,O=Min,L=BJ,ST=BJ,C=CN" -noprompt
-          ./gradlew assembleRelease --no-daemon \
-            -Pandroid.injected.signing.store.file=debug.keystore \
-            -Pandroid.injected.signing.store.password=android \
-            -Pandroid.injected.signing.key.alias=upload \
-            -Pandroid.injected.signing.key.password=android
-
-      - name: Upload release APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: universal-downloader-release
-          path: standalone-android/app/build/outputs/apk/release/*.apk
+          name: universal-downloader
+          path: output/universal-downloader.apk
           retention-days: 90
 
       - name: Create Release
+        if: env.APK_FOUND == 'true'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v1.0.0-b${{ github.run_number }}
@@ -108,10 +82,10 @@ jobs:
           body: |
             ## 万能下载器 Android APK
 
-            ### 使用方法
+            ### 安装方法
             1. 下载 APK 安装到手机
             2. 粘贴链接即可下载图片/视频
-            3. 完全离线运行，无需服务器
+            3. 完全在手机本地运行，无需服务器
 
             ### 支持平台
             B站、抖音、YouTube、小红书、微博、Instagram、Twitter 等 1000+ 网站
@@ -119,8 +93,6 @@ jobs:
             ### 构建信息
             - Commit: ${{ github.sha }}
             - Build: #${{ github.run_number }}
-          files: |
-            standalone-android/app/build/outputs/apk/release/*.apk
-            standalone-android/app/build/outputs/apk/debug/*.apk
+          files: output/universal-downloader.apk
           draft: false
           prerelease: false
