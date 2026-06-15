@@ -33,78 +33,65 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      # Chaquopy 需要 Python 3.11 来构建
       - name: Setup Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-
-      - name: Verify Python
-        run: |
-          python3 --version
-          which python3
-          echo "PYTHON_PATH=$(which python3)" >> $GITHUB_ENV
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
         with:
           packages: 'platforms;android-34 build-tools;34.0.0'
 
-      - name: Install Gradle and generate wrapper
+      - name: Install Gradle
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq gradle
+
+      - name: Generate Gradle wrapper
+        working-directory: standalone-android
+        run: gradle wrapper --gradle-version 8.5
+
+      - name: Create local.properties
         working-directory: standalone-android
         run: |
-          # Install Gradle
-          sudo apt-get update -qq && sudo apt-get install -y -qq gradle
-          # Generate wrapper
-          gradle wrapper --gradle-version 8.5
-          # Make executable
-          chmod +x gradlew
+          echo "sdk.dir=$ANDROID_HOME" > local.properties
+          echo "PYTHON_PATH=$(which python3)" >> $GITHUB_ENV
 
       - name: Build debug APK
         working-directory: standalone-android
-        env:
-          PYTHON_PATH: ${{ env.PYTHON_PATH }}
-        run: ./gradlew assembleDebug --no-daemon
+        run: PYTHON_PATH=$(which python3) ./gradlew assembleDebug --no-daemon --stacktrace
 
       - name: Build release APK
         working-directory: standalone-android
-        env:
-          PYTHON_PATH: ${{ env.PYTHON_PATH }}
         run: |
-          # 生成调试用签名（Release 也可用）
           keytool -genkey -v \
             -keystore debug.keystore \
             -alias upload \
             -keyalg RSA -keysize 2048 -validity 10000 \
-            -storepass android \
-            -keypass android \
-            -dname "CN=Universal Downloader, OU=Dev, O=Min, L=Beijing, ST=Beijing, C=CN" \
+            -storepass android -keypass android \
+            -dname "CN=App,OU=Dev,O=Min,L=BJ,ST=BJ,C=CN" \
             -noprompt 2>/dev/null || true
-
-          # 用 debug 签名构建 release（避免正式签名的复杂性）
-          ./gradlew assembleRelease \
+          PYTHON_PATH=$(which python3) ./gradlew assembleRelease --no-daemon \
             -Pandroid.injected.signing.store.file=debug.keystore \
             -Pandroid.injected.signing.store.password=android \
             -Pandroid.injected.signing.key.alias=upload \
-            -Pandroid.injected.signing.key.password=android \
-            --no-daemon
+            -Pandroid.injected.signing.key.password=android
 
       - name: Find APK files
         id: find_apk
         run: |
           echo "=== All APK files ==="
-          find standalone-android -name "*.apk" -type f
-          DEBUG_APK=$(find standalone-android -name "*debug*.apk" -type f | head -1)
-          RELEASE_APK=$(find standalone-android -name "*release*.apk" -type f | head -1)
+          find standalone-android -name "*.apk" -type f || true
+          DEBUG_APK=$(find standalone-android -name "*debug*.apk" -type f 2>/dev/null | head -1 || echo "")
+          RELEASE_APK=$(find standalone-android -name "*release*.apk" -type f 2>/dev/null | head -1 || echo "")
           echo "debug_apk=$DEBUG_APK" >> $GITHUB_OUTPUT
           echo "release_apk=$RELEASE_APK" >> $GITHUB_OUTPUT
-          if [ -f "$DEBUG_APK" ]; then
+          if [ -n "$DEBUG_APK" ] && [ -f "$DEBUG_APK" ]; then
             cp "$DEBUG_APK" universal-downloader-debug.apk
-            echo "Debug APK: $(ls -lh universal-downloader-debug.apk)"
+            ls -lh universal-downloader-debug.apk
           fi
-          if [ -f "$RELEASE_APK" ]; then
+          if [ -n "$RELEASE_APK" ] && [ -f "$RELEASE_APK" ]; then
             cp "$RELEASE_APK" universal-downloader-release.apk
-            echo "Release APK: $(ls -lh universal-downloader-release.apk)"
+            ls -lh universal-downloader-release.apk
           fi
 
       - name: Upload debug APK artifact
@@ -124,17 +111,16 @@ jobs:
           retention-days: 90
 
       - name: Create Release
-        if: github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ inputs.version_name || '1.0.0' }}-${{ github.run_number }}
-          name: Release v${{ inputs.version_name || '1.0.0' }} (Build #${{ github.run_number }})
+          tag_name: v${{ inputs.version_name || '1.0.0' }}-b${{ github.run_number }}
+          name: "万能下载器 v${{ inputs.version_name || '1.0.0' }} (Build #${{ github.run_number }})"
           body: |
             ## 万能下载器 Android APK
 
             ### 安装方法
-            1. 下载 `universal-downloader-release.apk`
-            2. 允许「安装未知来源应用」
+            1. 下载 APK 文件
+            2. 允许安装未知来源应用
             3. 安装后即可使用
 
             ### 特性
@@ -143,7 +129,6 @@ jobs:
             - yt-dlp 引擎内置于 APK
 
             ### 构建信息
-            - 构建时间: ${{ github.event.head_commit.timestamp || 'now' }}
             - Commit: ${{ github.sha }}
           files: |
             universal-downloader-release.apk
