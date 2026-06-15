@@ -1,0 +1,22 @@
+{
+  "name": "universal-downloader",
+  "version": "1.0.0",
+  "description": "万能下载器 - 全网图片/视频智能下载 Android 版本",
+  "main": "index.js",
+  "scripts": {
+    "build": "node build-mobile.js",
+    "cap:sync": "npx cap sync",
+    "cap:open": "npx cap open android",
+    "cap:build": "npx cap sync && cd android && ./gradlew assembleDebug"
+  },
+  "dependencies": {
+    "@capacitor/android": "^6.0.0",
+    "@capacitor/core": "^6.0.0",
+    "@capacitor/cli": "^6.0.0",
+    "@capacitor/share": "^6.0.0",
+    "@capacitor/clipboard": "^6.0.0"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^6.0.0"
+  }
+}

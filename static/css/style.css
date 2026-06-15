@@ -578,3 +578,25 @@ body {
         grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
     }
 }
+
+/* ===== PWA Safe Area (iOS notch / Android edge-to-edge) ===== */
+@supports (padding-top: env(safe-area-inset-top)) {
+    .app {
+        padding-top: calc(24px + env(safe-area-inset-top));
+        padding-bottom: calc(60px + env(safe-area-inset-bottom));
+        padding-left: calc(16px + env(safe-area-inset-left));
+        padding-right: calc(16px + env(safe-area-inset-right));
+    }
+}
+
+/* PWA standalone mode tweaks */
+@media all and (display-mode: standalone) {
+    body {
+        -webkit-user-select: none;
+        user-select: none;
+        -webkit-tap-highlight-color: transparent;
+    }
+    .header {
+        padding-top: 8px;
+    }
+}

@@ -593,8 +593,16 @@ HTML_TEMPLATE = r"""
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>🌐 万能下载器 - 全网图片视频下载</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>万能下载器 - 全网图片视频下载</title>
+    <meta name="description" content="粘贴任意链接，自动识别并下载全网图片/视频">
+    <meta name="theme-color" content="#4f6ef7">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="万能下载器">
+    <link rel="manifest" href="/static/manifest.json">
+    <link rel="icon" type="image/png" sizes="192x192" href="/static/icons/icon-192.png">
+    <link rel="apple-touch-icon" href="/static/icons/icon-192.png">
     <link rel="stylesheet" href="/static/css/style.css">
 </head>
 <body>
@@ -698,6 +706,26 @@ HTML_TEMPLATE = r"""
     </div>
 
     <script src="/static/js/app.js"></script>
+    <script>
+        // 注册 Service Worker (PWA)
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('/static/sw.js')
+                .then(function(reg) { console.log('[PWA] Service Worker 已注册'); })
+                .catch(function(err) { console.log('[PWA] Service Worker 注册失败:', err); });
+        }
+        // URL 分享接收
+        window.addEventListener('DOMContentLoaded', function() {
+            var params = new URLSearchParams(window.location.search);
+            var sharedUrl = params.get('url') || params.get('text');
+            if (sharedUrl) {
+                document.getElementById('urlInput').value = sharedUrl;
+                // 触发分析
+                setTimeout(function() {
+                    document.getElementById('analyzeBtn').click();
+                }, 500);
+            }
+        });
+    </script>
 </body>
 </html>
 """
