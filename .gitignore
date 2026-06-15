@@ -1,0 +1,48 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+*.egg
+.Python
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Downloads
+downloads/*
+!downloads/.gitkeep
+
+# History
+history.json
+
+# Android
+android/android/
+android/node_modules/
+android/dist/
+android/.gradle/
+android/build/
+android/capacitor-cordova-android-plugins/
+android/*.apk
+android/*.aab
+
+# Node
+node_modules/
+package-lock.json
