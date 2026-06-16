@@ -390,7 +390,6 @@ class MainActivity : AppCompatActivity() {
                     obj.getString("size"), obj.getLong("time"),
                     obj.optString("path", "")))
             }
-            }
             adapter.notifyDataSetChanged()
             binding.tvEmptyHistory.visibility = if (historyItems.isEmpty()) View.VISIBLE else View.GONE
         } catch (_: Exception) {}
