@@ -302,7 +302,8 @@ def _resolve_shortlink(url):
     if "xhslink.com" in url:
         try:
             import requests as req
-            resp = req.get(url, headers=_xhs_headers(), allow_redirects=True, timeout=10)
+            resp = req.get(url, headers=_xhs_headers(), cookies=_xhs_cookies(),
+                          allow_redirects=True, timeout=10)
             return resp.url
         except:
             pass
@@ -398,16 +399,23 @@ def _analyze_xhs(url):
             return None
 
         nc = items[0].get("note_card", {})
-        title = nc.get("title", f"小红书笔记")[:60]
+        title = (nc.get("title") or f"小红书 {note_id[:8]}")[:60]
         v = nc.get("video", {})
-        has_video = bool(v and v.get("media", {}).get("stream"))
+        media = v.get("media", {}) if v else {}
+        stream = media.get("stream", {})
+        has_video = bool(stream)
+
+        # 没有视频也没有图片 → None (让 yt-dlp fallback)
+        img_list = nc.get("image_list", [])
+        if not has_video and not img_list:
+            return None
 
         return _safe_json({
             "success": True,
-            "title": title,
+            "title": str(title)[:60],
             "duration": v.get("duration", 0) if v else 0,
-            "uploader": nc.get("user", {}).get("nickname", ""),
-            "thumbnail": nc.get("cover", {}).get("url_default", ""),
+            "uploader": str((nc.get("user") or {}).get("nickname", "")),
+            "thumbnail": (nc.get("cover") or {}).get("url_default", ""),
             "formats_count": 1 if has_video else 0,
             "ext": "mp4",
         })
