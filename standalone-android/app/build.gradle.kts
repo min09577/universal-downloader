@@ -48,13 +48,6 @@ android {
     }
 }
 
-repositories {
-    maven { url = uri("https://maven.aliyun.com/repository/public") }
-    maven { url = uri("https://maven.aliyun.com/repository/google") }
-    google()
-    mavenCentral()
-}
-
 dependencies {
     // AndroidX
     implementation("androidx.core:core-ktx:1.12.0")
