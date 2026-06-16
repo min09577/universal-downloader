@@ -86,6 +86,65 @@
         </LinearLayout>
     </LinearLayout>
 
+    <!-- 平台登录 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginHorizontal="16dp"
+        android:layout_marginTop="4dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="登录:"
+            android:textColor="#5A5E6E"
+            android:textSize="11sp" />
+
+        <TextView
+            android:id="@+id/btnLoginBilibili"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="6dp"
+            android:background="@drawable/bg_login_btn"
+            android:clickable="true"
+            android:focusable="true"
+            android:paddingHorizontal="10dp"
+            android:paddingVertical="4dp"
+            android:text="B站"
+            android:textColor="#FB7299"
+            android:textSize="11sp" />
+
+        <TextView
+            android:id="@+id/btnLoginXhs"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="6dp"
+            android:background="@drawable/bg_login_btn"
+            android:clickable="true"
+            android:focusable="true"
+            android:paddingHorizontal="10dp"
+            android:paddingVertical="4dp"
+            android:text="小红书"
+            android:textColor="#FF2442"
+            android:textSize="11sp" />
+
+        <TextView
+            android:id="@+id/btnLoginDouyin"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="6dp"
+            android:background="@drawable/bg_login_btn"
+            android:clickable="true"
+            android:focusable="true"
+            android:paddingHorizontal="10dp"
+            android:paddingVertical="4dp"
+            android:text="抖音"
+            android:textColor="#69C9D0"
+            android:textSize="11sp" />
+    </LinearLayout>
+
     <!-- 解析结果 -->
     <LinearLayout
         android:id="@+id/layoutResult"

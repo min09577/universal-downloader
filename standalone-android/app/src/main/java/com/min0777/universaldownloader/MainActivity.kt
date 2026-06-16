@@ -163,6 +163,18 @@ class MainActivity : AppCompatActivity() {
             logLines.clear()
             binding.tvLog.text = "日志已清空"
         }
+
+        // 平台登录按钮
+        binding.btnLoginBilibili.setOnClickListener { openLogin("bilibili") }
+        binding.btnLoginXhs.setOnClickListener { openLogin("xiaohongshu") }
+        binding.btnLoginDouyin.setOnClickListener { openLogin("douyin") }
+    }
+
+    private fun openLogin(platform: String) {
+        addLog("打开登录页: $platform")
+        val intent = Intent(this, LoginActivity::class.java)
+        intent.putExtra("platform", platform)
+        startActivity(intent)
     }
 
     private fun handleSharedIntent() {

@@ -45,6 +45,12 @@
             </intent-filter>
         </activity>
 
+        <!-- 平台登录 -->
+        <activity
+            android:name=".LoginActivity"
+            android:exported="false"
+            android:theme="@style/Theme.UniversalDownloader" />
+
         <!-- FileProvider: 让其他 App 打开下载的文件 -->
         <provider
             android:name="androidx.core.content.FileProvider"
