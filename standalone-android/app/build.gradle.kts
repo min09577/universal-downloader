@@ -1,7 +1,7 @@
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
-    // id("com.chaquo.python") version "16.0.0"  // TEMP: disabled for CI test
+    id("com.chaquo.python") version "16.0.0"
 }
 
 android {
@@ -19,7 +19,13 @@ android {
             abiFilters += listOf("arm64-v8a", "x86_64")
         }
 
-        // TEMP: python block removed
+        python {
+            buildPython(System.getenv("PYTHON_PATH") ?: "python3")
+            pip {
+                install("yt-dlp")
+                install("requests")
+            }
+        }
     }
 
     buildTypes {
@@ -40,6 +46,13 @@ android {
     buildFeatures {
         viewBinding = true
     }
+}
+
+repositories {
+    maven { url = uri("https://maven.aliyun.com/repository/public") }
+    maven { url = uri("https://maven.aliyun.com/repository/google") }
+    google()
+    mavenCentral()
 }
 
 dependencies {
