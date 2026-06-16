@@ -6,12 +6,12 @@ plugins {
 
 android {
     namespace = "com.min0777.universaldownloader"
-    compileSdk = 35
+    compileSdk = 34
 
     defaultConfig {
         applicationId = "com.min0777.universaldownloader"
         minSdk = 26
-        targetSdk = 35
+        targetSdk = 34
         versionCode = 1
         versionName = "1.0.0"
 
