@@ -1,17 +1,7 @@
-buildscript {
-    repositories {
-        mavenCentral()
-        google()
-    }
-    dependencies {
-        classpath("com.chaquo.python:gradle:16.0.0")
-    }
-}
-
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
-    id("com.chaquo.python")
+    id("com.chaquo.python") version "16.0.0"
 }
 
 android {
