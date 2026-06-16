@@ -173,70 +173,173 @@ def analyze_url(url):
 
 def download_video(url, progress_callback=None):
     url = normalize_url(url)
+    domain = _get_domain(url)
+    dl_dir = get_download_dir()
+
     try:
         from yt_dlp import YoutubeDL
 
-        dl_dir = get_download_dir()
-        output_template = os.path.join(dl_dir, "UD_%(title).80s.%(ext)s")
-
-        class AndroidProgressHook:
-            def __init__(self, cb):
-                self.cb = cb
-            def __call__(self, d):
-                if d.get("status") == "downloading":
-                    total = d.get("total_bytes") or d.get("total_bytes_estimate", 0)
-                    downloaded = d.get("downloaded_bytes", 0)
-                    speed = d.get("speed", 0)
-                    if total > 0 and self.cb:
-                        pct = int(downloaded * 100 / total)
-                        spd = f"{speed/1024/1024:.1f} MB/s" if speed else ""
-                        try: self.cb(pct, spd)
-                        except: pass
-                elif d.get("status") == "finished" and self.cb:
-                    try: self.cb(100, "处理中...")
-                    except: pass
-
         opts = _ytdlp_base_opts()
         opts.update({
-            "outtmpl": output_template,
-            "progress_hooks": [AndroidProgressHook(progress_callback)] if progress_callback else [],
-            "merge_output_format": "mp4",
-            # Android 无 ffmpeg → 只用 best 单流（不合并音视频）
-            "format": "best",
+            "outtmpl": os.path.join(dl_dir, "UD_%(title).80s.%(ext)s"),
+            "progress_hooks": [_make_progress_hook(progress_callback)] if progress_callback else [],
             "max_filesize": 500 * 1024 * 1024,
         })
 
-        domain = _get_domain(url)
-        cf = _cookies_file(domain)
-        if cf:
-            opts["cookiefile"] = cf
-
+        # === 平台特化 format ===
         if "bilibili.com" in domain:
+            # B站全分轨 → 只下 bestvideo（无音频但能看）
+            opts["format"] = "bestvideo[height<=1080]/bestvideo/best"
             opts["http_headers"] = {"Referer": "https://www.bilibili.com/", "Origin": "https://www.bilibili.com"}
-        if "xiaohongshu.com" in domain:
-            opts["http_headers"] = {"Referer": "https://www.xiaohongshu.com/", "Origin": "https://www.xiaohongshu.com"}
+        elif "xiaohongshu.com" in domain or "xhslink.com" in domain:
+            # 小红书直接用 requests 解析 HTML
+            return _download_xhs(url, dl_dir, progress_callback)
+        else:
+            # 通用：best 单流
+            opts["format"] = "best"
+
+        cf = _cookies_file(domain)
+        if cf: opts["cookiefile"] = cf
 
         with YoutubeDL(opts) as ydl:
             ydl.extract_info(url, download=True)
 
-        downloaded = sorted(
-            [f for f in Path(dl_dir).iterdir() if f.is_file()],
-            key=lambda p: p.stat().st_mtime, reverse=True
-        )
-
-        if downloaded:
-            latest = downloaded[0]
-            size = latest.stat().st_size
-            return _safe_json({
-                "success": True,
-                "filename": latest.name,
-                "path": str(latest),
-                "size_mb": round(size / (1024 * 1024), 2),
-            })
-        return _safe_json({"success": False, "error": "下载完成但未找到文件"})
+        return _find_downloaded(dl_dir)
 
     except Exception as e:
         return _safe_json({"success": False, "error": str(e)[:300]})
+
+
+def _make_progress_hook(cb):
+    class Hook:
+        def __init__(s, c): s.c = c
+        def __call__(s, d):
+            if d.get("status") == "downloading" and s.c:
+                t = d.get("total_bytes") or d.get("total_bytes_estimate", 0)
+                dl = d.get("downloaded_bytes", 0)
+                if t > 0:
+                    try: s.c(int(dl*100/t), f"{d.get('speed',0)/1024/1024:.1f} MB/s" if d.get('speed') else "")
+                    except: pass
+            elif d.get("status") == "finished" and s.c:
+                try: s.c(100, "处理中...")
+                except: pass
+    return Hook(cb)
+
+
+def _download_xhs(url, dl_dir, progress_callback):
+    """小红书专用：直接从 HTML 提取视频地址下载"""
+    try:
+        import requests as req
+        import re as _re
+
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+            "Referer": "https://www.xiaohongshu.com/",
+        }
+
+        # 先获取 xsec_token 和 cookies
+        domain = _get_domain(url) or "www.xiaohongshu.com"
+        cookies_str = _get_cookies(domain)
+        cookies = {}
+        if cookies_str:
+            for item in cookies_str.split(';'):
+                item = item.strip()
+                if '=' in item:
+                    k, v = item.split('=', 1)
+                    cookies[k.strip()] = v.strip()
+
+        # 提取 note_id
+        m = _re.search(r'([a-f0-9]{24})', url)
+        if not m:
+            return _safe_json({"success": False, "error": "无法解析小红书 note_id"})
+        note_id = m.group(1)
+
+        # 小红书 API
+        api_url = f"https://edith.xiaohongshu.com/api/sns/web/v1/feed?source_note_id={note_id}"
+        resp = req.get(api_url, headers=headers, cookies=cookies, timeout=15)
+
+        if resp.status_code != 200:
+            # 回退到 yt-dlp
+            return _download_fallback(url, dl_dir, domain, progress_callback)
+
+        data = resp.json()
+        items = data.get("data", {}).get("items", [])
+
+        video_url = None
+        cover_title = f"xhs_{note_id}"
+        for item in items:
+            nc = item.get("note_card", {})
+            cover_title = nc.get("title", cover_title)[:60]
+            video = nc.get("video", {})
+            media = video.get("media", {})
+            stream = media.get("stream", {})
+            # 取最高清
+            for key in ["h265", "h264", "h266"]:
+                master = stream.get(key, [])
+                if master:
+                    video_url = master[0].get("master_url", "")
+                    break
+            if video_url:
+                break
+
+        if not video_url:
+            return _safe_json({"success": False, "error": "小红书API未返回视频地址（可能需要更强的认证）"})
+
+        # 下载视频
+        safe_title = _re.sub(r'[\\/*?:"<>|]', '', cover_title)
+        filename = f"UD_{safe_title}.mp4"
+        filepath = os.path.join(dl_dir, filename)
+
+        resp2 = req.get(video_url, headers=headers, stream=True, timeout=60)
+        total = int(resp2.headers.get('content-length', 0))
+        downloaded = 0
+        with open(filepath, "wb") as f:
+            for chunk in resp2.iter_content(65536):
+                f.write(chunk)
+                downloaded += len(chunk)
+                if total > 0 and progress_callback:
+                    try: progress_callback(int(downloaded*100/total), f"{downloaded/1024/1024:.1f}MB/{total/1024/1024:.1f}MB")
+                    except: pass
+
+        size = os.path.getsize(filepath)
+        return _safe_json({
+            "success": True, "filename": filename, "path": filepath,
+            "size_mb": round(size/(1024*1024), 2),
+        })
+
+    except Exception as e:
+        return _safe_json({"success": False, "error": f"小红书解析失败: {str(e)[:200]}"})
+
+
+def _download_fallback(url, dl_dir, domain, progress_callback):
+    """回退到 yt-dlp 下载"""
+    try:
+        from yt_dlp import YoutubeDL
+        opts = _ytdlp_base_opts()
+        opts.update({
+            "outtmpl": os.path.join(dl_dir, "UD_%(title).80s.%(ext)s"),
+            "format": "best",
+            "progress_hooks": [_make_progress_hook(progress_callback)] if progress_callback else [],
+        })
+        cf = _cookies_file(domain)
+        if cf: opts["cookiefile"] = cf
+        with YoutubeDL(opts) as ydl:
+            ydl.extract_info(url, download=True)
+        return _find_downloaded(dl_dir)
+    except Exception as e:
+        return _safe_json({"success": False, "error": str(e)[:200]})
+
+
+def _find_downloaded(dl_dir):
+    """查找最新下载的文件"""
+    files = sorted(
+        [f for f in Path(dl_dir).iterdir() if f.is_file()],
+        key=lambda p: p.stat().st_mtime, reverse=True
+    )
+    if files:
+        f = files[0]
+        return _safe_json({"success": True, "filename": f.name, "path": str(f), "size_mb": round(f.stat().st_size/(1024*1024), 2)})
+    return _safe_json({"success": False, "error": "下载完成但未找到文件"})
 
 
 def download_image(url):
