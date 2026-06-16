@@ -36,13 +36,14 @@ jobs:
       - name: Show environment
         run: |
           echo "ANDROID_HOME=$ANDROID_HOME"
-          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
           echo "JAVA_HOME=$JAVA_HOME"
-          echo "PYTHON_PATH=$(which python3)"
-          python3 --version
-          java -version
+          echo "PYTHON=$(which python3) -> $(python3 --version)"
+          ls -la "$ANDROID_HOME/platforms/" 2>/dev/null
+          ls -la "$ANDROID_HOME/build-tools/" 2>/dev/null
+          which gradle && gradle --version
 
       - name: Build
+        id: build_step
         working-directory: standalone-android
         run: |
           echo "sdk.dir=$ANDROID_HOME" > local.properties
@@ -50,25 +51,33 @@ jobs:
           chmod +x gradlew
           export PYTHON_PATH=$(which python3)
           echo "PYTHON_PATH=$PYTHON_PATH"
-          ./gradlew assembleDebug --no-daemon --stacktrace
+          # Build and capture ALL output
+          { ./gradlew assembleDebug --no-daemon --stacktrace 2>&1; echo $? > /tmp/build_exit; } | tee build-output.txt
+          exit $(cat /tmp/build_exit)
 
-      - name: Collect and upload APK
+      - name: Upload build output (for debugging)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log-${{ github.run_number }}
+          path: standalone-android/build-output.txt
+          retention-days: 7
+
+      - name: Collect APK
+        id: apk
         run: |
-          echo "=== APK search ==="
           APK=$(find standalone-android -name "*.apk" -type f 2>/dev/null | head -1)
           if [ -n "$APK" ]; then
-            echo "Found: $APK"
-            ls -lh "$APK"
+            echo "APK found: $APK ($(du -h "$APK" | cut -f1))"
             echo "apk_path=$APK" >> $GITHUB_OUTPUT
           else
-            echo "No APK found!"
+            echo "No APK found - check build-output.txt artifact"
           fi
-        id: apk
 
       - uses: actions/upload-artifact@v4
         if: steps.apk.outputs.apk_path != ''
         with:
-          name: universal-downloader-debug
+          name: universal-downloader
           path: ${{ steps.apk.outputs.apk_path }}
           retention-days: 30
 
