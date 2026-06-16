@@ -48,9 +48,16 @@ jobs:
 
       - name: Build APK
         working-directory: standalone-android
-        env:
-          PYTHON_PATH: ${{ env.PYTHON_PATH }}
-        run: ./gradlew assembleDebug --no-daemon
+        run: |
+          export PYTHON_PATH=$(which python3)
+          echo "PYTHON_PATH=$PYTHON_PATH"
+          python3 --version
+          set +e
+          ./gradlew assembleDebug --no-daemon --stacktrace 2>&1 | tee /tmp/build.log
+          BUILD_EXIT=${PIPESTATUS[0]}
+          echo "=== LAST 80 LINES ==="
+          tail -80 /tmp/build.log
+          exit $BUILD_EXIT
 
       - name: Collect APK
         run: |
