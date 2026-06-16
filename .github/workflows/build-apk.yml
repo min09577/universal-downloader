@@ -34,15 +34,18 @@ jobs:
         with:
           packages: 'platforms;android-35 build-tools;35.0.0 ndk;26.1.10909125'
 
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v3
-        with:
-          gradle-version: 8.11.1
+      - name: Install Gradle
+        run: |
+          wget -q https://services.gradle.org/distributions/gradle-8.11.1-bin.zip
+          sudo unzip -q gradle-8.11.1-bin.zip -d /opt
+          echo "/opt/gradle-8.11.1/bin" >> $GITHUB_PATH
+          /opt/gradle-8.11.1/bin/gradle --version
 
       - name: Build APK
         working-directory: standalone-android
         run: |
           echo "sdk.dir=$ANDROID_HOME" > local.properties
+          /opt/gradle-8.11.1/bin/gradle wrapper --gradle-version 8.11.1
           chmod +x gradlew
           ./gradlew assembleDebug --no-daemon
 
