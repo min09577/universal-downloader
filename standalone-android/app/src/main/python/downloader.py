@@ -236,49 +236,72 @@ def _make_progress_hook(cb):
 
 
 def _download_xhs(url, dl_dir, progress_callback):
-    """小红书专用：直接从 HTML 提取视频地址下载"""
+    """小红书专用：抓取HTML提取 __INITIAL_STATE__ → 视频地址"""
     try:
         import requests as req
 
         url = _resolve_shortlink(url)
         note_id = _extract_note_id(url)
         if not note_id:
-            return _safe_json({"success": False, "error": "无法解析小红书 note_id"})
+            return _safe_json({"success": False, "error": f"无法提取 note_id: {url[:60]}"})
 
         headers = _xhs_headers()
         cookies = _xhs_cookies()
 
-        api_url = f"https://edith.xiaohongshu.com/api/sns/web/v1/feed?source_note_id={note_id}"
-        resp = req.get(api_url, headers=headers, cookies=cookies, timeout=15)
+        # 抓取笔记HTML页面，提取 __INITIAL_STATE__
+        page_url = f"https://www.xiaohongshu.com/explore/{note_id}"
+        resp = req.get(page_url, headers=headers, cookies=cookies, timeout=15)
 
         if resp.status_code != 200:
-            return _download_fallback(url, dl_dir, "www.xiaohongshu.com", progress_callback)
+            return _safe_json({"success": False, "error": f"页面返回{resp.status_code}（需登录）"})
 
-        data = resp.json()
-        items = data.get("data", {}).get("items", [])
-        if not items:
-            return _safe_json({"success": False, "error": "小红书API无内容（需登录或帖子已删除）"})
+        html = resp.text
 
-        nc = items[0].get("note_card", {})
-        title = nc.get("title", f"xhs_{note_id}")[:60]
-        v = nc.get("video", {})
-        stream = v.get("media", {}).get("stream", {})
+        # 提取 __INITIAL_STATE__ JSON
+        m = re.search(r'window\.__INITIAL_STATE__\s*=\s*({.+?})\s*</script>', html, re.DOTALL)
+        if not m:
+            m = re.search(r'__INITIAL_STATE__\s*=\s*({.+?});', html, re.DOTALL)
+        if not m:
+            return _safe_json({"success": False, "error": "无法提取页面数据（帖子可能不存在）"})
 
-        video_url = None
-        for key in ["h265", "h264", "h266"]:
-            urls = stream.get(key, [])
-            if urls:
-                video_url = urls[0].get("master_url", "")
-                break
+        state = json.loads(m.group(1).replace('undefined', 'null'))
+        note_detail = None
+
+        # 从 state 中提取笔记数据
+        note_data = state.get("note", {}) or state.get("noteDetailMap", {})
+        if note_data:
+            note_detail = note_data.get(note_id) or note_data.get("note", {}) or list(note_data.values())[0] if note_data else {}
+
+        if not note_detail:
+            return _safe_json({"success": False, "error": "页面不包含视频数据"})
+
+        title = (note_detail.get("title") or f"xhs_{note_id}")[:60]
+        v = note_detail.get("video", {})
+
+        # 找视频URL
+        video_url = ""
+        if v:
+            # 方式1: video.media.stream
+            stream = v.get("media", {}).get("stream", {})
+            for key in ["h265", "h264", "h266", "av1"]:
+                urls = stream.get(key, [])
+                if urls:
+                    video_url = urls[0].get("master_url", "")
+                    break
+            # 方式2: video.url (备用)
+            if not video_url:
+                video_url = v.get("url", "")
 
         if not video_url:
-            return _safe_json({"success": False, "error": "小红书API未返回视频地址（需登录或非视频帖）"})
+            # 可能是图文帖
+            return _safe_json({"success": False, "error": "非视频帖或无视频地址"})
 
+        # 下载
         safe_title = re.sub(r'[\\/*?:"<>|]', '', title)
         filename = f"UD_{safe_title}.mp4"
         filepath = os.path.join(dl_dir, filename)
 
-        resp2 = req.get(video_url, headers=headers, stream=True, timeout=120)
+        resp2 = req.get(video_url, headers=_xhs_headers(), stream=True, timeout=120)
         total = int(resp2.headers.get('content-length', 0))
         downloaded = 0
         with open(filepath, "wb") as f:
@@ -296,7 +319,7 @@ def _download_xhs(url, dl_dir, progress_callback):
         })
 
     except Exception as e:
-        return _safe_json({"success": False, "error": f"小红书解析失败: {str(e)[:200]}"})
+        return _safe_json({"success": False, "error": f"小红书解析异常: {str(e)[:200]}"})
 
 
 # ========== 小红书工具函数 ==========
@@ -379,70 +402,44 @@ def _find_downloaded(dl_dir):
 
 
 def _analyze_xhs(url):
-    """小红书专用分析——用 API 而非 yt-dlp。返回错误JSON而非None以便调试。"""
+    """小红书分析：抓HTML提取 __INITIAL_STATE__"""
     try:
         import requests as req
 
-        # Step 1: 解析真实URL和note_id
         resolved = _resolve_shortlink(url)
         note_id = _extract_note_id(resolved)
         if not note_id:
-            return _safe_json({"success": False, "error": f"无法提取 note_id: {resolved[:60]}", "is_image": True})
-
-        # Step 2: 提取 xsec_token
-        xsec = ""
-        if "xsec_token=" in url or "xsec_token=" in resolved:
-            m = re.search(r'xsec_token=([^&]+)', url + resolved)
-            if m:
-                xsec = m.group(1)
-                # URL decode
-                try:
-                    from urllib.parse import unquote
-                    xsec = unquote(xsec)
-                except:
-                    pass
+            return _safe_json({"success": False, "error": f"无法提取 note_id", "is_image": True})
 
         headers = _xhs_headers()
         cookies = _xhs_cookies()
-        if xsec:
-            headers["X-S"] = "1"  # 小红书有时候需要这个
-            headers["X-Xsec-Token"] = xsec
 
-        # Step 3: API调用
-        api_url = f"https://edith.xiaohongshu.com/api/sns/web/v1/feed?source_note_id={note_id}"
-        resp = req.get(api_url, headers=headers, cookies=cookies, timeout=15)
+        page_url = f"https://www.xiaohongshu.com/explore/{note_id}"
+        resp = req.get(page_url, headers=headers, cookies=cookies, timeout=15)
 
         if resp.status_code != 200:
-            return _safe_json({"success": False, "error": f"小红书API返回 {resp.status_code}", "is_image": True})
+            return _safe_json({"success": False, "error": f"页面返回 {resp.status_code}", "is_image": True})
 
-        data = resp.json()
-        if not data.get("success", True):
-            msg = data.get("msg", "API错误")
-            return _safe_json({"success": False, "error": f"小红书API: {msg}", "is_image": True})
+        html = resp.text
+        m = re.search(r'window\.__INITIAL_STATE__\s*=\s*({.+?})\s*</script>', html, re.DOTALL)
+        if not m:
+            return _safe_json({"success": False, "error": "未找到页面数据", "is_image": True})
 
-        items = data.get("data", {}).get("items", [])
-        if not items:
-            return _safe_json({"success": False, "error": "小红书API无内容(需登录)", "is_image": True})
+        state = json.loads(m.group(1).replace('undefined', 'null'))
+        nd = (state.get("note") or {}).get("noteDetailMap", {})
+        detail = nd.get(note_id) or (list(nd.values())[0] if nd else {})
+        if not detail:
+            return _safe_json({"success": False, "error": "页面不含笔记", "is_image": True})
 
-        nc = items[0].get("note_card", {})
-        title = (nc.get("title") or f"小红书 {note_id[:8]}")[:60]
-        v = nc.get("video", {})
-        media = v.get("media", {}) if v else {}
-        stream = media.get("stream", {})
-        has_video = bool(stream)
-
-        img_list = nc.get("image_list", [])
-        if not has_video and not img_list:
-            return _safe_json({"success": False, "error": "图文帖无视频", "is_image": True})
+        title = str(detail.get("title") or f"xhs_{note_id[:8]}")[:60]
+        v = detail.get("video", {})
+        has_video = bool(v and (v.get("media") or v.get("url")))
 
         return _safe_json({
-            "success": True,
-            "title": str(title)[:60],
+            "success": True, "title": title,
             "duration": v.get("duration", 0) if v else 0,
-            "uploader": str((nc.get("user") or {}).get("nickname", "")),
-            "thumbnail": (nc.get("cover") or {}).get("url_default", ""),
-            "formats_count": 1 if has_video else 0,
-            "ext": "mp4",
+            "uploader": str((detail.get("user") or {}).get("nickname", "")),
+            "thumbnail": "", "formats_count": 1 if has_video else 0, "ext": "mp4",
         })
     except Exception as e:
         return _safe_json({"success": False, "error": f"分析异常: {str(e)[:100]}", "is_image": True})
