@@ -96,22 +96,28 @@ class MainActivity : AppCompatActivity() {
                 hideProgress()
 
                 if (result.getBoolean("success")) {
+                    // yt-dlp 成功识别
                     binding.tvResultTitle.text = result.optString("title", "未知")
-                    binding.tvResultPlatform.text = "平台: ${PythonBridge.detectPlatform(url).optString("platform", "")}"
+                    binding.tvResultPlatform.text = "平台: ${result.optString("uploader", "")}"
                     binding.layoutResult.visibility = View.VISIBLE
                     binding.btnDownload.isEnabled = true
-                    binding.btnDownload.text = "下载"
+                    binding.btnDownload.text = "下载视频"
                 } else if (result.optBoolean("is_image", false)) {
+                    // 是图片直链
                     binding.tvResultTitle.text = "图片文件"
                     binding.tvResultPlatform.text = "直链图片"
                     binding.layoutResult.visibility = View.VISIBLE
                     binding.btnDownload.isEnabled = true
-                    binding.btnDownload.text = "下载"
+                    binding.btnDownload.text = "下载图片"
                 } else {
+                    // yt-dlp 无法识别，显示具体错误并尝试作为网页提取图片
+                    val errMsg = result.optString("error", "未知错误")
+                    Toast.makeText(this@MainActivity, "yt-dlp: $errMsg", Toast.LENGTH_LONG).show()
                     tryExtractImages(url)
                 }
             } catch (e: Exception) {
                 hideProgress()
+                Toast.makeText(this@MainActivity, "解析异常: ${e.message}", Toast.LENGTH_LONG).show()
                 tryExtractImages(url)
             }
         }
@@ -126,13 +132,18 @@ class MainActivity : AppCompatActivity() {
                 if (result.getBoolean("success")) {
                     val images = result.getJSONArray("images")
                     val total = result.getInt("total")
-                    binding.tvResultTitle.text = "找到 $total 张图片"
-                    binding.tvResultPlatform.text = "网页图片"
-                    binding.layoutResult.visibility = View.VISIBLE
-                    binding.btnDownload.isEnabled = true
-                    binding.btnDownload.text = "下载 ($total 张)"
+                    if (total > 0) {
+                        binding.tvResultTitle.text = "找到 $total 张图片"
+                        binding.tvResultPlatform.text = "网页图片提取"
+                        binding.layoutResult.visibility = View.VISIBLE
+                        binding.btnDownload.isEnabled = true
+                        binding.btnDownload.text = "下载图片"
+                    } else {
+                        Toast.makeText(this@MainActivity, "页面中未找到图片", Toast.LENGTH_SHORT).show()
+                    }
                 } else {
-                    Toast.makeText(this@MainActivity, "无法识别该链接", Toast.LENGTH_SHORT).show()
+                    val errMsg = result.optString("error", "未知错误")
+                    Toast.makeText(this@MainActivity, "无法识别该链接: $errMsg", Toast.LENGTH_LONG).show()
                 }
             } catch (e: Exception) {
                 Toast.makeText(this@MainActivity, "解析失败: ${e.message}", Toast.LENGTH_LONG).show()

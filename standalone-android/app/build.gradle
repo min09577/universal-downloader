@@ -22,6 +22,7 @@ android {
             pip {
                 install 'yt-dlp'
                 install 'requests'
+                install 'certifi'
             }
         }
     }
