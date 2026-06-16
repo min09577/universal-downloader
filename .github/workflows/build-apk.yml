@@ -32,26 +32,18 @@ jobs:
 
       - uses: android-actions/setup-android@v3
         with:
-          packages: 'platforms;android-34 build-tools;34.0.0 ndk;26.1.10909125'
+          packages: 'platforms;android-35 build-tools;35.0.0 ndk;26.1.10909125'
 
-      - name: Generate Gradle wrapper
-        working-directory: standalone-android
-        run: |
-          sudo apt-get update -qq && sudo apt-get install -y -qq gradle
-          gradle wrapper --gradle-version 8.11.1
-
-      - name: Configure project
-        working-directory: standalone-android
-        run: |
-          echo "sdk.dir=$ANDROID_HOME" > local.properties
-          echo "PYTHON_PATH=$(which python3)" >> $GITHUB_ENV
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: 8.11.1
 
       - name: Build APK
         working-directory: standalone-android
         run: |
-          export PYTHON_PATH=$(which python3)
-          echo "PYTHON_PATH=$PYTHON_PATH"
-          python3 --version
+          echo "sdk.dir=$ANDROID_HOME" > local.properties
+          chmod +x gradlew
           ./gradlew assembleDebug --no-daemon
 
       - name: Collect APK
