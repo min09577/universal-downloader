@@ -145,12 +145,13 @@ def analyze_url(url):
                 "Origin": "https://www.bilibili.com",
             }
 
-        # 小红书特殊处理
-        if "xiaohongshu.com" in domain:
-            opts["http_headers"] = {
-                "Referer": "https://www.xiaohongshu.com/",
-                "Origin": "https://www.xiaohongshu.com",
-            }
+        # 小红书特殊处理：直接尝试 API
+        if "xiaohongshu.com" in domain or "xhslink.com" in domain:
+            # 尝试用小红书 API
+            xhs_result = _analyze_xhs(url)
+            if xhs_result:
+                return xhs_result
+            # fall through to normal
 
         with YoutubeDL(opts) as ydl:
             info = ydl.extract_info(url, download=False)
@@ -189,7 +190,11 @@ def download_video(url, progress_callback=None):
         # === 平台特化 format ===
         if "bilibili.com" in domain:
             # B站全分轨 → 只下 bestvideo（无音频但能看）
-            opts["format"] = "bestvideo[height<=1080]/bestvideo/best"
+            # 有 cookies（登录）→ 可以下原画；无cookies→ 限1080p
+            if _get_cookies("bilibili.com"):
+                opts["format"] = "bestvideo/best"  # 登录后可下原画
+            else:
+                opts["format"] = "bestvideo[height<=1080]/bestvideo/best"
             opts["http_headers"] = {"Referer": "https://www.bilibili.com/", "Origin": "https://www.bilibili.com"}
         elif "xiaohongshu.com" in domain or "xhslink.com" in domain:
             # 小红书直接用 requests 解析 HTML
@@ -248,8 +253,10 @@ def _download_xhs(url, dl_dir, progress_callback):
                     k, v = item.split('=', 1)
                     cookies[k.strip()] = v.strip()
 
-        # 提取 note_id
-        m = _re.search(r'([a-f0-9]{24})', url)
+        # 提取 note_id (小红书ID长度不固定，16-26位)
+        m = _re.search(r'/item/([a-f0-9]{16,26})', url)
+        if not m:
+            m = _re.search(r'([a-f0-9]{12,30})', url)
         if not m:
             return _safe_json({"success": False, "error": "无法解析小红书 note_id"})
         note_id = m.group(1)
@@ -340,6 +347,59 @@ def _find_downloaded(dl_dir):
         f = files[0]
         return _safe_json({"success": True, "filename": f.name, "path": str(f), "size_mb": round(f.stat().st_size/(1024*1024), 2)})
     return _safe_json({"success": False, "error": "下载完成但未找到文件"})
+
+
+def _analyze_xhs(url):
+    """小红书专用分析——用 API 而非 yt-dlp"""
+    try:
+        import requests as req
+        m = re.search(r'/item/([a-f0-9]{16,26})', url)
+        if not m:
+            m = re.search(r'([a-f0-9]{12,30})', url)
+        if not m:
+            return None
+        note_id = m.group(1)
+
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Referer": "https://www.xiaohongshu.com/",
+        }
+        cookies = {}
+        c = _get_cookies("www.xiaohongshu.com")
+        if c:
+            for item in c.split(';'):
+                item = item.strip()
+                if '=' in item:
+                    k, v = item.split('=', 1)
+                    cookies[k.strip()] = v.strip()
+
+        api_url = f"https://edith.xiaohongshu.com/api/sns/web/v1/feed?source_note_id={note_id}"
+        resp = req.get(api_url, headers=headers, cookies=cookies, timeout=10)
+
+        if resp.status_code != 200:
+            return None
+
+        data = resp.json()
+        items = data.get("data", {}).get("items", [])
+        if not items:
+            return None
+
+        nc = items[0].get("note_card", {})
+        title = nc.get("title", f"小红书笔记")[:60]
+        v = nc.get("video", {})
+        has_video = bool(v and v.get("media", {}).get("stream"))
+
+        return _safe_json({
+            "success": True,
+            "title": title,
+            "duration": v.get("duration", 0) if v else 0,
+            "uploader": nc.get("user", {}).get("nickname", ""),
+            "thumbnail": nc.get("cover", {}).get("url_default", ""),
+            "formats_count": 1 if has_video else 0,
+            "ext": "mp4",
+        })
+    except:
+        return None
 
 
 def download_image(url):

@@ -80,13 +80,28 @@ echo "sdk.dir=$ANDROID_HOME" > local.properties
 
 ## 📝 更新日志
 
-### v0.9.1 (2026-06-16)
+### v0.9.4 (2026-06-16)
+- 🎯 **Xiaohongshu Native API Integration** — 绕过 yt-dlp extractor，直接调用小红书 edith API 完成视频分析与下载
+- 🔍 **Dynamic Note ID Parser** — 适配小红书不同长度的 note_id 格式（16-26位）
+- 🎬 **Bilibili Adaptive Quality** — 登录后自动解锁原画画质，未登录降级至 1080p
+- 🧪 **Xiaohongshu API Analyzer** — 新增 `_analyze_xhs` 专用分析器，API 级识别替代 yt-dlp 通用解析
 
+### v0.9.3 (2026-06-16)
+- ⚡ **Platform-Specific Download Strategy** — 各平台采用独立下载策略，重构 download_video
+- 🎥 **Bilibili Video-Only Stream** — 绕过 ffmpeg 依赖，直接下载 bestvideo 纯视频流
+- 🔗 **Xiaohongshu Direct API** — `_download_xhs` 通过 edith API 获取视频源地址，HTTP 直链下载
+- ♻️ **Extraction Refactor** — 提取 `_find_downloaded`, `_make_progress_hook` 为可复用工具函数
+
+### v0.9.2 (2026-06-16)
+- 🎞️ **Bilibili Universal Format** — format 选择器全面放宽，覆盖更多可用流
+- 🖥️ **Desktop User-Agent Routing** — 小红书 WebView 登录使用桌面端 UA，规避 App 推广页跳转
+- 🔗 **Xiaohongshu Login Endpoint** — 恢复 /login 入口，优化登录体验
+
+### v0.9.1 (2026-06-16)
 - 🧠 **Intelligent URL Extraction** — 自动从分享文本中提取纯净 URL
 - 🔐 **OAuth WebView Portal** — 内置 WebView 平台登录，自动注入 cookies
 - 🔧 **Bilibili Format Optimizer** — 修复 ffmpeg 依赖导致的下载失败
 - 📂 **MediaStore Integration** — 文件通过系统 API 写入，相册即时可见
-- 🐛 **CookieManager Crash Fix** — 通过 Kotlin 主线程桥接安全获取 cookies
 - 🩺 **Runtime Diagnostic Panel** — 底部实时日志窗口，支持一键复制
 
 ### v0.8.0 (2026-06-16)
