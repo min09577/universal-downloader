@@ -22,13 +22,35 @@ def _fix_ssl():
         pass
 _fix_ssl()
 
-# ========== Cookies (安全模式：延迟加载) ==========
+# ========== Cookies (通过 Kotlin 桥接，主线程安全) ==========
 
-def _get_android_cookies(domain):
-    """安全获取 Android WebView cookies - 不会导致崩溃"""
-    return ""  # 暂时禁用，用 headers 代替
-    # CookieManager 需要主线程，Chaquopy 在后台线程运行
-    # 后续版本会通过 Kotlin 桥接安全获取
+def _get_cookies(domain):
+    """安全获取 cookies——通过 Kotlin 桥接在主线程执行"""
+    try:
+        from com.min0777.universaldownloader import MyApp
+        return MyApp.getCookiesSafe(domain)
+    except:
+        return ""
+
+
+def _cookies_file(domain):
+    """创建临时 cookies 文件"""
+    c = _get_cookies(domain)
+    if not c:
+        return None
+    try:
+        import tempfile, os
+        fd, path = tempfile.mkstemp(suffix='.txt', prefix='cookies_')
+        with os.fdopen(fd, 'w') as f:
+            f.write("# Netscape HTTP Cookie File\n\n")
+            for item in c.split(';'):
+                item = item.strip()
+                if '=' in item:
+                    name, _, value = item.partition('=')
+                    f.write(f"{domain}\tFALSE\t/\tFALSE\t0\t{name.strip()}\t{value.strip()}\n")
+        return path
+    except:
+        return None
 
 
 # ========== URL 处理 ==========
@@ -110,8 +132,11 @@ def analyze_url(url):
         opts = _ytdlp_base_opts()
         opts["extract_flat"] = False
 
-        # 平台特殊 headers (cookies 暂用 HTTP headers 代替)
+        # 平台特殊处理
         domain = _get_domain(url)
+        cf = _cookies_file(domain)
+        if cf:
+            opts["cookiefile"] = cf
 
         # B站特殊处理
         if "bilibili.com" in domain:
@@ -176,11 +201,14 @@ def download_video(url, progress_callback=None):
             "outtmpl": output_template,
             "progress_hooks": [AndroidProgressHook(progress_callback)] if progress_callback else [],
             "merge_output_format": "mp4",
-            "format": "best[height<=1080]/best",
+            "format": "bestvideo[height<=1080]+bestaudio/best[height<=1080]/best",
             "max_filesize": 500 * 1024 * 1024,
         })
 
         domain = _get_domain(url)
+        cf = _cookies_file(domain)
+        if cf:
+            opts["cookiefile"] = cf
 
         if "bilibili.com" in domain:
             opts["http_headers"] = {"Referer": "https://www.bilibili.com/", "Origin": "https://www.bilibili.com"}
