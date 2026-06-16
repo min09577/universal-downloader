@@ -38,10 +38,24 @@ class LoginActivity : AppCompatActivity() {
         webView.loadUrl(loginUrl)
 
         btnDone.setOnClickListener {
-            val cookies = CookieManager.getInstance().getCookie(loginUrl) ?: ""
-            if (cookies.isNotEmpty()) {
-                Toast.makeText(this, "登录成功！Cookies 已保存", Toast.LENGTH_SHORT).show()
+            // 先导航到主域名确保 cookies 被 CookieManager 记录
+            val mainUrl = getMainUrl(platform)
+            if (mainUrl != loginUrl) {
+                webView.loadUrl(mainUrl)
             }
+            // 检查 cookies
+            val cm = CookieManager.getInstance()
+            cm.flush()
+            val cookiesMain = cm.getCookie(mainUrl) ?: ""
+            val cookiesLogin = cm.getCookie(loginUrl) ?: ""
+            val msg = if (cookiesMain.isNotEmpty()) {
+                "登录成功！Cookies: ${cookiesMain.take(50)}..."
+            } else if (cookiesLogin.isNotEmpty()) {
+                "登录部分成功，请稍候..."
+            } else {
+                "未检测到登录Cookies，请确认已登录"
+            }
+            Toast.makeText(this, msg, Toast.LENGTH_LONG).show()
             finish()
         }
     }
@@ -77,6 +91,13 @@ class LoginActivity : AppCompatActivity() {
         "weibo" -> "https://weibo.com/login.php"
         "kuaishou" -> "https://www.kuaishou.com"
         else -> "https://www.bilibili.com"
+    }
+
+    private fun getMainUrl(platform: String): String = when (platform) {
+        "xiaohongshu" -> "https://www.xiaohongshu.com/"
+        "bilibili" -> "https://www.bilibili.com/"
+        "douyin" -> "https://www.douyin.com/"
+        else -> loginUrl
     }
 
     private fun getPlatformUA(platform: String): String = when (platform) {
