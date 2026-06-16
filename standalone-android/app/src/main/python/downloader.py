@@ -235,69 +235,46 @@ def _download_xhs(url, dl_dir, progress_callback):
     """小红书专用：直接从 HTML 提取视频地址下载"""
     try:
         import requests as req
-        import re as _re
 
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
-            "Referer": "https://www.xiaohongshu.com/",
-        }
-
-        # 先获取 xsec_token 和 cookies
-        domain = _get_domain(url) or "www.xiaohongshu.com"
-        cookies_str = _get_cookies(domain)
-        cookies = {}
-        if cookies_str:
-            for item in cookies_str.split(';'):
-                item = item.strip()
-                if '=' in item:
-                    k, v = item.split('=', 1)
-                    cookies[k.strip()] = v.strip()
-
-        # 提取 note_id (小红书ID长度不固定，16-26位)
-        m = _re.search(r'/item/([a-f0-9]{16,26})', url)
-        if not m:
-            m = _re.search(r'([a-f0-9]{12,30})', url)
-        if not m:
+        url = _resolve_shortlink(url)
+        note_id = _extract_note_id(url)
+        if not note_id:
             return _safe_json({"success": False, "error": "无法解析小红书 note_id"})
-        note_id = m.group(1)
 
-        # 小红书 API
+        headers = _xhs_headers()
+        cookies = _xhs_cookies()
+
         api_url = f"https://edith.xiaohongshu.com/api/sns/web/v1/feed?source_note_id={note_id}"
         resp = req.get(api_url, headers=headers, cookies=cookies, timeout=15)
 
         if resp.status_code != 200:
-            # 回退到 yt-dlp
-            return _download_fallback(url, dl_dir, domain, progress_callback)
+            return _download_fallback(url, dl_dir, "www.xiaohongshu.com", progress_callback)
 
         data = resp.json()
         items = data.get("data", {}).get("items", [])
+        if not items:
+            return _safe_json({"success": False, "error": "小红书API无内容（需登录或帖子已删除）"})
+
+        nc = items[0].get("note_card", {})
+        title = nc.get("title", f"xhs_{note_id}")[:60]
+        v = nc.get("video", {})
+        stream = v.get("media", {}).get("stream", {})
 
         video_url = None
-        cover_title = f"xhs_{note_id}"
-        for item in items:
-            nc = item.get("note_card", {})
-            cover_title = nc.get("title", cover_title)[:60]
-            video = nc.get("video", {})
-            media = video.get("media", {})
-            stream = media.get("stream", {})
-            # 取最高清
-            for key in ["h265", "h264", "h266"]:
-                master = stream.get(key, [])
-                if master:
-                    video_url = master[0].get("master_url", "")
-                    break
-            if video_url:
+        for key in ["h265", "h264", "h266"]:
+            urls = stream.get(key, [])
+            if urls:
+                video_url = urls[0].get("master_url", "")
                 break
 
         if not video_url:
-            return _safe_json({"success": False, "error": "小红书API未返回视频地址（可能需要更强的认证）"})
+            return _safe_json({"success": False, "error": "小红书API未返回视频地址（需登录或非视频帖）"})
 
-        # 下载视频
-        safe_title = _re.sub(r'[\\/*?:"<>|]', '', cover_title)
+        safe_title = re.sub(r'[\\/*?:"<>|]', '', title)
         filename = f"UD_{safe_title}.mp4"
         filepath = os.path.join(dl_dir, filename)
 
-        resp2 = req.get(video_url, headers=headers, stream=True, timeout=60)
+        resp2 = req.get(video_url, headers=headers, stream=True, timeout=120)
         total = int(resp2.headers.get('content-length', 0))
         downloaded = 0
         with open(filepath, "wb") as f:
@@ -305,7 +282,7 @@ def _download_xhs(url, dl_dir, progress_callback):
                 f.write(chunk)
                 downloaded += len(chunk)
                 if total > 0 and progress_callback:
-                    try: progress_callback(int(downloaded*100/total), f"{downloaded/1024/1024:.1f}MB/{total/1024/1024:.1f}MB")
+                    try: progress_callback(int(downloaded*100/total), f"{downloaded/1048576:.1f}/{total/1048576:.1f}MB")
                     except: pass
 
         size = os.path.getsize(filepath)
@@ -316,6 +293,53 @@ def _download_xhs(url, dl_dir, progress_callback):
 
     except Exception as e:
         return _safe_json({"success": False, "error": f"小红书解析失败: {str(e)[:200]}"})
+
+
+# ========== 小红书工具函数 ==========
+
+def _resolve_shortlink(url):
+    """跟踪短链接重定向获取真实 URL"""
+    if "xhslink.com" in url:
+        try:
+            import requests as req
+            resp = req.get(url, headers=_xhs_headers(), allow_redirects=True, timeout=10)
+            return resp.url
+        except:
+            pass
+    return url
+
+
+def _extract_note_id(url):
+    """从小红书URL提取 note_id"""
+    m = re.search(r'/item/([a-f0-9]{16,26})', url)
+    if m: return m.group(1)
+    m = re.search(r'/explore/([a-f0-9]{16,26})', url)
+    if m: return m.group(1)
+    m = re.search(r'([a-f0-9]{16,26})', url)
+    if m: return m.group(1)
+    return None
+
+
+def _xhs_headers():
+    return {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+        "Referer": "https://www.xiaohongshu.com/",
+        "Origin": "https://www.xiaohongshu.com",
+        "Accept": "application/json, text/plain, */*",
+    }
+
+
+def _xhs_cookies():
+    """获取小红书 cookies dict"""
+    cookies = {}
+    c = _get_cookies("www.xiaohongshu.com")
+    if c:
+        for item in c.split(';'):
+            item = item.strip()
+            if '=' in item:
+                k, v = item.split('=', 1)
+                cookies[k.strip()] = v.strip()
+    return cookies
 
 
 def _download_fallback(url, dl_dir, domain, progress_callback):
@@ -353,25 +377,14 @@ def _analyze_xhs(url):
     """小红书专用分析——用 API 而非 yt-dlp"""
     try:
         import requests as req
-        m = re.search(r'/item/([a-f0-9]{16,26})', url)
-        if not m:
-            m = re.search(r'([a-f0-9]{12,30})', url)
-        if not m:
-            return None
-        note_id = m.group(1)
 
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-            "Referer": "https://www.xiaohongshu.com/",
-        }
-        cookies = {}
-        c = _get_cookies("www.xiaohongshu.com")
-        if c:
-            for item in c.split(';'):
-                item = item.strip()
-                if '=' in item:
-                    k, v = item.split('=', 1)
-                    cookies[k.strip()] = v.strip()
+        url = _resolve_shortlink(url)
+        note_id = _extract_note_id(url)
+        if not note_id:
+            return None
+
+        headers = _xhs_headers()
+        cookies = _xhs_cookies()
 
         api_url = f"https://edith.xiaohongshu.com/api/sns/web/v1/feed?source_note_id={note_id}"
         resp = req.get(api_url, headers=headers, cookies=cookies, timeout=10)
