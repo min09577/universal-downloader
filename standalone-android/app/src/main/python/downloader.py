@@ -236,8 +236,11 @@ def _make_progress_hook(cb):
 
 
 def _download_xhs(url, dl_dir, progress_callback):
-    """小红书下载：yt-dlp + cookies（稳定可靠）"""
-    return _download_fallback(url, dl_dir, "www.xiaohongshu.com", progress_callback)
+    """小红书下载：清理URL后交给 yt-dlp + cookies"""
+    clean_url = normalize_url(url)
+    clean_url = _resolve_shortlink(clean_url)
+    clean_url = normalize_url(clean_url)  # 短链接解析后再次清理参数
+    return _download_fallback(clean_url, dl_dir, "www.xiaohongshu.com", progress_callback)
 
 
 # ========== 小红书工具函数 ==========
