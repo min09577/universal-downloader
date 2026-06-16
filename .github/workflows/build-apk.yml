@@ -8,13 +8,8 @@ on:
       - '.github/workflows/build-apk.yml'
   workflow_dispatch:
 
-concurrency:
-  group: build-apk-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
   build:
-    name: Build APK
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -34,34 +29,54 @@ jobs:
         with:
           packages: 'platforms;android-35 build-tools;35.0.0 ndk;26.1.10909125'
 
-      - name: Build APK
+      - uses: gradle/actions/setup-gradle@v3
+        with:
+          cache-disabled: true
+
+      - name: Show environment
+        run: |
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
+          echo "JAVA_HOME=$JAVA_HOME"
+          echo "PYTHON_PATH=$(which python3)"
+          python3 --version
+          java -version
+
+      - name: Build
         working-directory: standalone-android
         run: |
           echo "sdk.dir=$ANDROID_HOME" > local.properties
-          # Download Gradle
-          wget -q https://services.gradle.org/distributions/gradle-8.11.1-bin.zip
-          unzip -q gradle-8.11.1-bin.zip
-          # Generate wrapper
-          gradle-8.11.1/bin/gradle wrapper --gradle-version 8.11.1
+          gradle wrapper --gradle-version 8.11.1
           chmod +x gradlew
-          # Set Python path
           export PYTHON_PATH=$(which python3)
           echo "PYTHON_PATH=$PYTHON_PATH"
-          # Build
-          ./gradlew assembleDebug --no-daemon --stacktrace 2>&1 | tail -200
+          ./gradlew assembleDebug --no-daemon --stacktrace
 
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
+      - name: Collect and upload APK
+        run: |
+          echo "=== APK search ==="
+          APK=$(find standalone-android -name "*.apk" -type f 2>/dev/null | head -1)
+          if [ -n "$APK" ]; then
+            echo "Found: $APK"
+            ls -lh "$APK"
+            echo "apk_path=$APK" >> $GITHUB_OUTPUT
+          else
+            echo "No APK found!"
+          fi
+        id: apk
+
+      - uses: actions/upload-artifact@v4
+        if: steps.apk.outputs.apk_path != ''
         with:
           name: universal-downloader-debug
-          path: standalone-android/app/build/outputs/apk/debug/*.apk
+          path: ${{ steps.apk.outputs.apk_path }}
           retention-days: 30
 
-      - name: Create Release
-        uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v2
+        if: steps.apk.outputs.apk_path != ''
         with:
           tag_name: v1.0.0-b${{ github.run_number }}
           name: "万能下载器 Build #${{ github.run_number }}"
-          files: standalone-android/app/build/outputs/apk/debug/*.apk
+          files: ${{ steps.apk.outputs.apk_path }}
           draft: false
           prerelease: false
