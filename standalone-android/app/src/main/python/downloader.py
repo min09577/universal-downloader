@@ -22,39 +22,13 @@ def _fix_ssl():
         pass
 _fix_ssl()
 
-# ========== Cookies ==========
+# ========== Cookies (安全模式：延迟加载) ==========
 
 def _get_android_cookies(domain):
-    """从 Android WebView CookieManager 获取 cookies"""
-    try:
-        from android.webkit import CookieManager
-        cm = CookieManager.getInstance()
-        cookie_str = cm.getCookie(f"https://{domain}")
-        return cookie_str if cookie_str else ""
-    except:
-        return ""
-
-
-def _cookie_jar_for_domain(domain):
-    """创建包含 Android cookies 的 MozillaCookieJar"""
-    try:
-        import http.cookiejar
-        cookie_str = _get_android_cookies(domain)
-        if not cookie_str:
-            return None
-        cj = http.cookiejar.MozillaCookieJar()
-        # 写入临时文件
-        fd, path = tempfile.mkstemp(suffix='.txt', prefix='cookies_')
-        with os.fdopen(fd, 'w') as f:
-            f.write("# Netscape HTTP Cookie File\n")
-            for item in cookie_str.split(';'):
-                item = item.strip()
-                if '=' in item:
-                    name, value = item.split('=', 1)
-                    f.write(f"{domain}\tFALSE\t/\tFALSE\t0\t{name.strip()}\t{value.strip()}\n")
-        return path
-    except:
-        return None
+    """安全获取 Android WebView cookies - 不会导致崩溃"""
+    return ""  # 暂时禁用，用 headers 代替
+    # CookieManager 需要主线程，Chaquopy 在后台线程运行
+    # 后续版本会通过 Kotlin 桥接安全获取
 
 
 # ========== URL 处理 ==========
@@ -136,11 +110,8 @@ def analyze_url(url):
         opts = _ytdlp_base_opts()
         opts["extract_flat"] = False
 
-        # 尝试传入 cookies
+        # 平台特殊 headers (cookies 暂用 HTTP headers 代替)
         domain = _get_domain(url)
-        cookie_file = _cookie_jar_for_domain(domain)
-        if cookie_file:
-            opts["cookiefile"] = cookie_file
 
         # B站特殊处理
         if "bilibili.com" in domain:
@@ -210,9 +181,6 @@ def download_video(url, progress_callback=None):
         })
 
         domain = _get_domain(url)
-        cookie_file = _cookie_jar_for_domain(domain)
-        if cookie_file:
-            opts["cookiefile"] = cookie_file
 
         if "bilibili.com" in domain:
             opts["http_headers"] = {"Referer": "https://www.bilibili.com/", "Origin": "https://www.bilibili.com"}

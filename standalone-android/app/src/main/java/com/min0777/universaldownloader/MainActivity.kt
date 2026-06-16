@@ -11,7 +11,6 @@ import android.os.Bundle
 import android.os.Environment
 import android.provider.MediaStore
 import android.view.View
-import android.webkit.CookieManager
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.FileProvider
@@ -43,15 +42,9 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
-        // 启用 WebView Cookie 同步
-        CookieManager.getInstance().apply {
-            setAcceptCookie(true)
-            setAcceptThirdPartyCookies(null, true)
-        }
         setupUI()
         loadHistory()
         addLog("=== 万能下载器启动 ===")
-        addLog("Android SDK: ${Build.VERSION.SDK_INT}")
         handleSharedIntent()
     }
 
