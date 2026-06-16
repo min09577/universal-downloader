@@ -34,23 +34,11 @@ object PythonBridge {
     }
 
     /**
-     * 下载视频（带进度回调）
+     * 下载视频
      */
     fun downloadVideo(url: String, onProgress: ((Int, String) -> Unit)? = null): JSONObject {
         init(MyApp.instance)
-        val module = getModule()
-
-        val result = if (onProgress != null) {
-            // 创建 Python 可调用的回调
-            val callback = object : com.chaquo.python.PyObject {
-                // 这里用反射或直接传参方式
-            }
-            // 直接调用不带回调的版本，进度通过其他方式获取
-            module.callAttr("download_video", url, null).toString()
-        } else {
-            module.callAttr("download_video", url, null).toString()
-        }
-
+        val result = getModule().callAttr("download_video", url, null).toString()
         return JSONObject(result)
     }
 
