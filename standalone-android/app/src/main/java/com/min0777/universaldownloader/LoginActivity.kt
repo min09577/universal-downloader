@@ -97,7 +97,7 @@ class LoginActivity : AppCompatActivity() {
         "xiaohongshu" -> "https://www.xiaohongshu.com/"
         "bilibili" -> "https://www.bilibili.com/"
         "douyin" -> "https://www.douyin.com/"
-        else -> loginUrl
+        else -> "https://www.bilibili.com/"
     }
 
     private fun getPlatformUA(platform: String): String = when (platform) {
