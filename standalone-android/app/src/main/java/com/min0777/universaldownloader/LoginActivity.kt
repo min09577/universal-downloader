@@ -72,10 +72,10 @@ class LoginActivity : AppCompatActivity() {
 
     private fun getLoginUrl(platform: String): String = when (platform) {
         "bilibili" -> "https://passport.bilibili.com/login"
-        "xiaohongshu" -> "https://www.xiaohongshu.com/login"
-        "douyin" -> "https://www.douyin.com/?is_login=1"
-        "weibo" -> "https://passport.weibo.com/sso/signin"
-        "kuaishou" -> "https://www.kuaishou.com/login"
+        "xiaohongshu" -> "https://www.xiaohongshu.com/explore"  // 首页，用户自己点登录
+        "douyin" -> "https://www.douyin.com"
+        "weibo" -> "https://weibo.com/login.php"
+        "kuaishou" -> "https://www.kuaishou.com"
         else -> "https://www.bilibili.com"
     }
 

@@ -1,122 +1,106 @@
-# 万能下载器 (Universal Downloader)
+# 全能下载器 · OmniDL
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Python 3.9+](https://img.shields.io/badge/Python-3.9%2B-blue)](https://www.python.org/)
-[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/min09577/universal-downloader/pulls)
+> **Omnipresent Media Acquisition Engine** — 泛在媒体获取引擎
 
-🌐 一个强大的全网图片/视频智能下载工具。粘贴任意链接，自动识别并下载。
+全平台智能媒体下载工具，覆盖 1000+ 网站的视频/图片下载，支持 Android 原生运行。
 
-## ✨ 特性
+---
 
-- 🔍 **智能识别** — 自动判断链接类型（视频/图片/网页），无需手动选择
-- 🎬 **视频下载** — 基于 yt-dlp 引擎，支持 1000+ 网站（B站、YouTube、抖音、小红书、微博等）
-- 🖼️ **图片提取** — 自动提取网页中所有图片，批量下载
-- 📊 **实时进度** — 下载速度、百分比实时显示
-- 📱 **PWA 支持** — 可安装到手机桌面，像原生 App 一样使用
-- 🤖 **APK 打包** — 支持构建为 Android APK（基于 Capacitor）
-- 🌙 **深色主题** — 现代化暗色 UI 设计
-- 📋 **历史管理** — 自动记录下载历史，支持一键重下
+## 🎯 核心特性
+
+| 特性 | 说明 |
+|------|------|
+| 🧠 **Intelligent URL Parser** | 基于 yt-dlp 的智能链接解析引擎，自动识别 1000+ 站点 |
+| 📱 **Fully Offline** | 纯本地执行，无需服务器，隐私零泄露 |
+| 🐍 **Python-on-Android** | Chaquopy 内嵌 Python 3.8 运行时，直接在设备上运行 yt-dlp |
+| 📂 **System Integration** | MediaStore API 写入，文件直接出现在系统相册和文件管理器 |
+| 📋 **Share Intent** | 从任何 App 分享链接到全能下载器，自动提取 URL |
+| 📊 **Live Progress** | 实时下载进度、速度显示 |
+| 🔍 **Diagnostic Logger** | 内置运行时日志面板，一键复制排错 |
+
+## 📦 支持平台
+
+| 平台 | 识别 | 下载 | 备注 |
+|------|:--:|:--:|------|
+| 抖音 / TikTok | ✅ | ✅ | 无需登录 |
+| Bilibili | ✅ | ✅ | 建议登录 |
+| YouTube | ✅ | ✅ | 无需登录 |
+| 小红书 | ⚠️ | ⚠️ | 需内置 WebView 登录 |
+| 微博 | ✅ | ✅ | — |
+| Instagram | ✅ | ✅ | — |
+| Twitter / X | ✅ | ✅ | — |
+| 快手 | ✅ | ✅ | — |
+| ... | | | 1000+ 站点 |
 
 ## 🚀 快速开始
 
-### 环境要求
+### 方式一：直接安装 APK
 
-- Python 3.9+
-- pip
+[→ 下载最新 Release](https://github.com/min09577/universal-downloader/releases)
 
-### 安装
+### 方式二：分享链接使用
 
-```bash
-# 克隆仓库
-git clone https://github.com/min09577/universal-downloader.git
-cd universal-downloader
+在抖音/B站/小红书等 App 中：
+1. 点击「分享」→「复制链接」
+2. 打开全能下载器 → 自动识别
+3. 点击「下载」
 
-# 创建虚拟环境
-python -m venv venv
+### 方式三：粘贴链接
 
-# 激活虚拟环境
-# Windows:
-venv\Scripts\activate
-# Linux/Mac:
-source venv/bin/activate
+直接粘贴 URL 到输入框 → 点击「识别」→ 点击「下载」
 
-# 安装依赖
-pip install -r requirements.txt
-```
-
-### 运行
+## 🛠️ 本地构建
 
 ```bash
-python app.py
+# 需要 Android Studio + Python 3.12+
+cd standalone-android
+echo "sdk.dir=$ANDROID_HOME" > local.properties
+./gradlew assembleDebug
+# APK: app/build/outputs/apk/debug/app-debug.apk
 ```
 
-打开浏览器访问 `http://127.0.0.1:5000`
-
-### 安装 ffmpeg（可选，推荐）
-
-部分视频格式需要 ffmpeg 进行合并处理：
-
-- **Windows**: 下载 [ffmpeg](https://ffmpeg.org/download.html) 并添加到 PATH
-- **Mac**: `brew install ffmpeg`
-- **Linux**: `sudo apt install ffmpeg`
-
-## 📱 手机端使用
-
-### 方式一：PWA（推荐）
-
-1. 确保手机和电脑在同一局域网
-2. 启动服务：`python app.py --host 0.0.0.0`
-3. 手机浏览器访问 `http://你的电脑IP:5000`
-4. Chrome 会自动提示「添加到主屏幕」
-
-### 方式二：构建 APK
-
-参见 [BUILD_APK.md](BUILD_APK.md)
-
-## 🏗️ 项目结构
+## 🏗️ 技术架构
 
 ```
-universal-downloader/
-├── app.py                 # Flask 后端（含 API + HTML 模板）
-├── requirements.txt       # Python 依赖
-├── static/
-│   ├── css/
-│   │   └── style.css      # UI 样式
-│   ├── js/
-│   │   └── app.js         # 前端逻辑
-│   ├── manifest.json      # PWA 清单
-│   └── sw.js              # Service Worker
-├── android/               # Capacitor Android 项目
-├── downloads/             # 下载文件目录
-├── LICENSE
-└── README.md
+┌─────────────────────────────────────┐
+│            MainActivity.kt          │  ← Kotlin UI Layer
+├─────────────────────────────────────┤
+│           PythonBridge.kt           │  ← Chaquopy Bridge
+├─────────────────────────────────────┤
+│         downloader.py               │  ← Python Engine
+│  ┌───────┐ ┌──────────┐ ┌───────┐  │
+│  │yt-dlp │ │ requests │ │certifi│  │  ← Embedded Python Packages
+│  └───────┘ └──────────┘ └───────┘  │
+├─────────────────────────────────────┤
+│       Chaquopy Python 3.8 Runtime   │  ← Native .so
+├─────────────────────────────────────┤
+│            Android OS               │
+└─────────────────────────────────────┘
 ```
 
-## 🔌 API 接口
+## 📝 更新日志
 
-| 端点 | 方法 | 说明 |
-|------|------|------|
-| `/api/analyze` | POST | 分析 URL，识别类型 |
-| `/api/download` | POST | 开始下载任务 |
-| `/api/task/<id>` | GET | 查询下载进度 |
-| `/api/history` | GET | 获取下载历史 |
-| `/api/files` | GET | 列出已下载文件 |
-| `/api/stats` | GET | 获取统计信息 |
+### v0.9.1 (2026-06-16)
 
-## 🤝 贡献
+- 🧠 **Intelligent URL Extraction** — 自动从分享文本中提取纯净 URL
+- 🔐 **OAuth WebView Portal** — 内置 WebView 平台登录，自动注入 cookies
+- 🔧 **Bilibili Format Optimizer** — 修复 ffmpeg 依赖导致的下载失败
+- 📂 **MediaStore Integration** — 文件通过系统 API 写入，相册即时可见
+- 🐛 **CookieManager Crash Fix** — 通过 Kotlin 主线程桥接安全获取 cookies
+- 🩺 **Runtime Diagnostic Panel** — 底部实时日志窗口，支持一键复制
 
-欢迎提交 PR 和 Issue！请确保代码风格一致。
+### v0.8.0 (2026-06-16)
 
-## 📄 许可证
+- 🚀 **Initial Release** — Chaquopy + yt-dlp 安卓集成
+- ✅ 抖音识别与下载通过
+- 🔧 GitHub Actions CI/CD 自动构建
 
-MIT License - 详见 [LICENSE](LICENSE) 文件
+## 📄 License
 
-## ⚠️ 免责声明
+MIT License — 自由使用、修改、分发。
 
-本工具仅供个人学习和技术研究使用。请遵守相关法律法规，尊重版权，不要下载未经授权的内容。
+---
 
-## 🙏 致谢
-
-- [yt-dlp](https://github.com/yt-dlp/yt-dlp) - 强大的视频下载引擎
-- [Flask](https://flask.palletsprojects.com/) - Web 框架
-- [Capacitor](https://capacitorjs.com/) - 跨平台应用框架
+<p align="center">
+  <sub>Built with Kotlin · Python · Chaquopy · yt-dlp</sub>
+</p>

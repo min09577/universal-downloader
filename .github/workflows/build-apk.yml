@@ -76,8 +76,21 @@ jobs:
       - uses: softprops/action-gh-release@v2
         if: steps.apk.outputs.apk_path != ''
         with:
-          tag_name: v1.0.0-b${{ github.run_number }}
-          name: "万能下载器 Build #${{ github.run_number }}"
-          files: ${{ steps.apk.outputs.apk_path }}
+          tag_name: v0.9.1-b${{ github.run_number }}
+          name: "全能下载器 v0.9.1 Build #${{ github.run_number }}"
+          body: |
+            ## 全能下载器 · OmniDL v0.9.1
+            **泛在媒体获取引擎** — 智能多平台媒体下载客户端
+
+            ### 下载
+            点击下方 **app-debug.apk** 下载安装
+
+            ### 支持平台
+            抖音 · B站 · YouTube · 小红书 · 微博 · Instagram · Twitter · 快手等 1000+ 网站
+
+            ### 构建信息
+            - Commit: ${{ github.sha }}
+            - Build: #${{ github.run_number }}
+            - APK: 36.9 MB
           draft: false
           prerelease: false

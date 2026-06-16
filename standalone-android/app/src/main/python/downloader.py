@@ -201,7 +201,8 @@ def download_video(url, progress_callback=None):
             "outtmpl": output_template,
             "progress_hooks": [AndroidProgressHook(progress_callback)] if progress_callback else [],
             "merge_output_format": "mp4",
-            "format": "bestvideo[height<=1080]+bestaudio/best[height<=1080]/best",
+            # B站等需要音视频合并，Android 无 ffmpeg → 不用 bestvideo+bestaudio
+            "format": "best[height<=1080]",
             "max_filesize": 500 * 1024 * 1024,
         })
 
