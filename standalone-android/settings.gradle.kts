@@ -4,12 +4,8 @@ pluginManagement {
         mavenCentral()
         gradlePluginPortal()
     }
-    resolutionStrategy {
-        eachPlugin {
-            if (requested.id.id == "com.chaquo.python") {
-                useModule("com.chaquo.python:gradle:${requested.version}")
-            }
-        }
+    plugins {
+        id("com.chaquo.python") version "16.0.0"
     }
 }
 dependencyResolutionManagement {
