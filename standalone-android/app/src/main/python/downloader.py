@@ -147,11 +147,15 @@ def analyze_url(url):
 
         # 小红书特殊处理：直接尝试 API
         if "xiaohongshu.com" in domain or "xhslink.com" in domain:
-            # 尝试用小红书 API
             xhs_result = _analyze_xhs(url)
             if xhs_result:
-                return xhs_result
-            # fall through to normal
+                parsed = json.loads(xhs_result)
+                if parsed.get("success"):
+                    return xhs_result  # API 成功，直接返回
+                # API 失败：如果 is_image → 让调用方尝试图片提取
+                if parsed.get("is_image"):
+                    return xhs_result  # 返回错误（is_image=True 会让前端展示图片）
+            # fall through to yt-dlp as last resort
 
         with YoutubeDL(opts) as ydl:
             info = ydl.extract_info(url, download=False)
@@ -375,28 +379,50 @@ def _find_downloaded(dl_dir):
 
 
 def _analyze_xhs(url):
-    """小红书专用分析——用 API 而非 yt-dlp"""
+    """小红书专用分析——用 API 而非 yt-dlp。返回错误JSON而非None以便调试。"""
     try:
         import requests as req
 
-        url = _resolve_shortlink(url)
-        note_id = _extract_note_id(url)
+        # Step 1: 解析真实URL和note_id
+        resolved = _resolve_shortlink(url)
+        note_id = _extract_note_id(resolved)
         if not note_id:
-            return None
+            return _safe_json({"success": False, "error": f"无法提取 note_id: {resolved[:60]}", "is_image": True})
+
+        # Step 2: 提取 xsec_token
+        xsec = ""
+        if "xsec_token=" in url or "xsec_token=" in resolved:
+            m = re.search(r'xsec_token=([^&]+)', url + resolved)
+            if m:
+                xsec = m.group(1)
+                # URL decode
+                try:
+                    from urllib.parse import unquote
+                    xsec = unquote(xsec)
+                except:
+                    pass
 
         headers = _xhs_headers()
         cookies = _xhs_cookies()
+        if xsec:
+            headers["X-S"] = "1"  # 小红书有时候需要这个
+            headers["X-Xsec-Token"] = xsec
 
+        # Step 3: API调用
         api_url = f"https://edith.xiaohongshu.com/api/sns/web/v1/feed?source_note_id={note_id}"
-        resp = req.get(api_url, headers=headers, cookies=cookies, timeout=10)
+        resp = req.get(api_url, headers=headers, cookies=cookies, timeout=15)
 
         if resp.status_code != 200:
-            return None
+            return _safe_json({"success": False, "error": f"小红书API返回 {resp.status_code}", "is_image": True})
 
         data = resp.json()
+        if not data.get("success", True):
+            msg = data.get("msg", "API错误")
+            return _safe_json({"success": False, "error": f"小红书API: {msg}", "is_image": True})
+
         items = data.get("data", {}).get("items", [])
         if not items:
-            return None
+            return _safe_json({"success": False, "error": "小红书API无内容(需登录)", "is_image": True})
 
         nc = items[0].get("note_card", {})
         title = (nc.get("title") or f"小红书 {note_id[:8]}")[:60]
@@ -405,10 +431,9 @@ def _analyze_xhs(url):
         stream = media.get("stream", {})
         has_video = bool(stream)
 
-        # 没有视频也没有图片 → None (让 yt-dlp fallback)
         img_list = nc.get("image_list", [])
         if not has_video and not img_list:
-            return None
+            return _safe_json({"success": False, "error": "图文帖无视频", "is_image": True})
 
         return _safe_json({
             "success": True,
@@ -419,8 +444,8 @@ def _analyze_xhs(url):
             "formats_count": 1 if has_video else 0,
             "ext": "mp4",
         })
-    except:
-        return None
+    except Exception as e:
+        return _safe_json({"success": False, "error": f"分析异常: {str(e)[:100]}", "is_image": True})
 
 
 def download_image(url):
