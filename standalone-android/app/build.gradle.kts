@@ -1,7 +1,7 @@
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
-    id("com.chaquo.python") version "16.0.0"
+    // id("com.chaquo.python") version "16.0.0"  // TEMP: disabled for CI test
 }
 
 android {
@@ -19,24 +19,10 @@ android {
             abiFilters += listOf("arm64-v8a", "x86_64")
         }
 
-        python {
-            buildPython(System.getenv("PYTHON_PATH") ?: "python3")
-            pip {
-                install("yt-dlp")
-                install("requests")
-            }
-        }
+        // TEMP: python block removed
     }
 
     buildTypes {
-        release {
-            isMinifyEnabled = true
-            isShrinkResources = true
-            proguardFiles(
-                getDefaultProguardFile("proguard-android-optimize.txt"),
-                "proguard-rules.pro"
-            )
-        }
         debug {
             isMinifyEnabled = false
         }
@@ -63,14 +49,13 @@ dependencies {
     implementation("com.google.android.material:material:1.11.0")
     implementation("androidx.constraintlayout:constraintlayout:2.1.4")
     implementation("androidx.recyclerview:recyclerview:1.3.2")
-    implementation("androidx.swiperefreshlayout:swiperefreshlayout:1.1.0")
 
     // Lifecycle + Coroutines
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.7.0")
     implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.7.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
 
-    // OkHttp for direct downloads
+    // OkHttp
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
 
     // JSON
