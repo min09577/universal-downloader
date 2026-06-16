@@ -29,63 +29,46 @@ jobs:
         with:
           packages: 'platforms;android-35 build-tools;35.0.0 ndk;26.1.10909125'
 
-      - name: Show environment
-        run: |
-          echo "ANDROID_HOME=$ANDROID_HOME"
-          echo "JAVA_HOME=$JAVA_HOME"
-          echo "PYTHON=$(which python3) -> $(python3 --version)"
-          ls -la "$ANDROID_HOME/platforms/" 2>/dev/null || echo "(no platforms dir)"
-          ls -la "$ANDROID_HOME/build-tools/" 2>/dev/null || echo "(no build-tools dir)"
-
-      - name: Install Gradle
-        run: |
-          wget -q https://services.gradle.org/distributions/gradle-8.11.1-bin.zip
-          unzip -q gradle-8.11.1-bin.zip
-          echo "$PWD/gradle-8.11.1/bin" >> $GITHUB_PATH
-          gradle-8.11.1/bin/gradle --version
-
-      - name: Build
+      - name: Build APK
         working-directory: standalone-android
         run: |
           echo "sdk.dir=$ANDROID_HOME" > local.properties
-          echo "=== Generating Gradle wrapper ==="
-          gradle wrapper --gradle-version 8.11.1
-          chmod +x gradlew
           export PYTHON_PATH=$(which python3)
+          chmod +x gradlew
+          echo "=== Build Info ==="
+          echo "ANDROID_HOME=$ANDROID_HOME"
           echo "PYTHON_PATH=$PYTHON_PATH"
-          echo "=== Building APK ==="
-          ./gradlew assembleDebug --no-daemon --stacktrace > build-output.txt 2>&1
-          BUILD_EXIT=$?
-          echo "=== Build output (last 150 lines) ==="
-          tail -150 build-output.txt
-          echo "=== Build exit code: $BUILD_EXIT ==="
-          exit $BUILD_EXIT
+          echo "=== Building ==="
+          ./gradlew assembleDebug --no-daemon --stacktrace 2>&1 | tee build-output.txt
+          EXIT=${PIPESTATUS[0]}
+          echo "=== Build exit code: $EXIT ==="
+          exit $EXIT
 
       - name: Upload build log
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: build-log-${{ github.run_number }}
+          name: build-log
           path: standalone-android/build-output.txt
           retention-days: 7
 
-      - name: Collect APK
-        id: apk
+      - name: Find and upload APK
         run: |
-          APK=$(find standalone-android -name "*.apk" -type f 2>/dev/null | head -1)
+          APK=$(find standalone-android -name "*.apk" -type f | head -1)
           if [ -n "$APK" ]; then
-            echo "APK found: $APK ($(du -h "$APK" | cut -f1))"
+            echo "APK: $APK ($(du -h "$APK" | cut -f1))"
             echo "apk_path=$APK" >> $GITHUB_OUTPUT
           else
-            echo "No APK found - check build-output.txt artifact"
+            echo "No APK found"
           fi
+        id: apk
 
       - uses: actions/upload-artifact@v4
         if: steps.apk.outputs.apk_path != ''
         with:
           name: universal-downloader
           path: ${{ steps.apk.outputs.apk_path }}
-          retention-days: 30
+          retention-days: 90
 
       - uses: softprops/action-gh-release@v2
         if: steps.apk.outputs.apk_path != ''
