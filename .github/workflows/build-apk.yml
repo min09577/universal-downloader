@@ -92,5 +92,6 @@ jobs:
             - Commit: ${{ github.sha }}
             - Build: #${{ github.run_number }}
             - APK: 36.9 MB
+          files: ${{ steps.apk.outputs.apk_path }}
           draft: false
           prerelease: false
