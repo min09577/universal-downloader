@@ -34,66 +34,34 @@ jobs:
         with:
           packages: 'platforms;android-35 build-tools;35.0.0 ndk;26.1.10909125'
 
-      - name: Install Gradle
-        run: |
-          wget -q https://services.gradle.org/distributions/gradle-8.11.1-bin.zip
-          sudo unzip -q gradle-8.11.1-bin.zip -d /opt
-          echo "/opt/gradle-8.11.1/bin" >> $GITHUB_PATH
-          /opt/gradle-8.11.1/bin/gradle --version
-
       - name: Build APK
         working-directory: standalone-android
-        env:
-          PYTHON_PATH: /opt/hostedtoolcache/Python/3.12.*/x64/bin/python3
         run: |
           echo "sdk.dir=$ANDROID_HOME" > local.properties
-          /opt/gradle-8.11.1/bin/gradle wrapper --gradle-version 8.11.1
+          # Download Gradle
+          wget -q https://services.gradle.org/distributions/gradle-8.11.1-bin.zip
+          unzip -q gradle-8.11.1-bin.zip
+          # Generate wrapper
+          gradle-8.11.1/bin/gradle wrapper --gradle-version 8.11.1
           chmod +x gradlew
+          # Set Python path
           export PYTHON_PATH=$(which python3)
           echo "PYTHON_PATH=$PYTHON_PATH"
-          ./gradlew assembleDebug --no-daemon
+          # Build
+          ./gradlew assembleDebug --no-daemon --stacktrace 2>&1 | tail -200
 
-      - name: Collect APK
-        run: |
-          echo "=== Searching for APK files ==="
-          find . -name "*.apk" -type f 2>/dev/null || echo "No APK found"
-          mkdir -p output
-          APK=$(find standalone-android -name "*.apk" -type f 2>/dev/null | head -1)
-          if [ -n "$APK" ] && [ -f "$APK" ]; then
-            cp "$APK" output/universal-downloader.apk
-            ls -lh output/universal-downloader.apk
-            echo "APK_FOUND=true" >> $GITHUB_ENV
-          else
-            echo "APK_FOUND=false" >> $GITHUB_ENV
-          fi
-
-      - name: Upload APK artifact
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: universal-downloader
-          path: output/universal-downloader.apk
-          retention-days: 90
+          name: universal-downloader-debug
+          path: standalone-android/app/build/outputs/apk/debug/*.apk
+          retention-days: 30
 
       - name: Create Release
-        if: env.APK_FOUND == 'true'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v1.0.0-b${{ github.run_number }}
           name: "万能下载器 Build #${{ github.run_number }}"
-          body: |
-            ## 万能下载器 Android APK
-
-            ### 安装方法
-            1. 下载 APK 安装到手机
-            2. 粘贴链接即可下载图片/视频
-            3. 完全在手机本地运行，无需服务器
-
-            ### 支持平台
-            B站、抖音、YouTube、小红书、微博、Instagram、Twitter 等 1000+ 网站
-
-            ### 构建信息
-            - Commit: ${{ github.sha }}
-            - Build: #${{ github.run_number }}
-          files: output/universal-downloader.apk
+          files: standalone-android/app/build/outputs/apk/debug/*.apk
           draft: false
           prerelease: false
