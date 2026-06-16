@@ -28,7 +28,7 @@ jobs:
 
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: '3.12'
 
       - uses: android-actions/setup-android@v3
         with:
@@ -38,7 +38,7 @@ jobs:
         working-directory: standalone-android
         run: |
           sudo apt-get update -qq && sudo apt-get install -y -qq gradle
-          gradle wrapper --gradle-version 8.4
+          gradle wrapper --gradle-version 8.11.1
 
       - name: Configure project
         working-directory: standalone-android
@@ -52,12 +52,7 @@ jobs:
           export PYTHON_PATH=$(which python3)
           echo "PYTHON_PATH=$PYTHON_PATH"
           python3 --version
-          set +e
-          ./gradlew assembleDebug --no-daemon --stacktrace 2>&1 | tee /tmp/build.log
-          BUILD_EXIT=${PIPESTATUS[0]}
-          echo "=== LAST 80 LINES ==="
-          tail -80 /tmp/build.log
-          exit $BUILD_EXIT
+          ./gradlew assembleDebug --no-daemon
 
       - name: Collect APK
         run: |

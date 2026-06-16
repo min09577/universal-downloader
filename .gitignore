@@ -46,3 +46,7 @@ android/*.aab
 # Node
 node_modules/
 package-lock.json
+standalone-android/.gradle/
+standalone-android/local.properties
+standalone-android/app/build/
+standalone-android/.idea/
