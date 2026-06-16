@@ -44,7 +44,7 @@ class MainActivity : AppCompatActivity() {
         setContentView(binding.root)
         setupUI()
         loadHistory()
-        addLog("=== 全能下载器 v0.9.8 启动 ===")
+        addLog("=== 全能下载器 v0.9.9 启动 ===")
         handleSharedIntent()
     }
 

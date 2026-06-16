@@ -236,7 +236,7 @@ def _make_progress_hook(cb):
 
 
 def _download_xhs(url, dl_dir, progress_callback):
-    """小红书专用：抓取HTML提取 __INITIAL_STATE__ → 视频地址"""
+    """小红书下载：直接从HTML提取视频URL（兼容登录/未登录）"""
     try:
         import requests as req
 
@@ -248,60 +248,62 @@ def _download_xhs(url, dl_dir, progress_callback):
         headers = _xhs_headers()
         cookies = _xhs_cookies()
 
-        # 抓取笔记HTML页面，提取 __INITIAL_STATE__
+        # 抓取HTML
         page_url = f"https://www.xiaohongshu.com/explore/{note_id}"
         resp = req.get(page_url, headers=headers, cookies=cookies, timeout=15)
-
         if resp.status_code != 200:
-            return _safe_json({"success": False, "error": f"页面返回{resp.status_code}（需登录）"})
+            return _safe_json({"success": False, "error": f"页面返回{resp.status_code}"})
 
         html = resp.text
+        video_url = None
+        title = f"xhs_{note_id}"
 
-        # 提取 __INITIAL_STATE__ JSON
+        # 策略1: __INITIAL_STATE__ (登录用户能看到完整数据)
         m = re.search(r'window\.__INITIAL_STATE__\s*=\s*({.+?})\s*</script>', html, re.DOTALL)
-        if not m:
-            m = re.search(r'__INITIAL_STATE__\s*=\s*({.+?});', html, re.DOTALL)
-        if not m:
-            return _safe_json({"success": False, "error": "无法提取页面数据（帖子可能不存在）"})
+        if m:
+            try:
+                state = json.loads(m.group(1).replace('undefined', 'null'))
+                nd = (state.get("note") or {}).get("noteDetailMap", {})
+                d = nd.get(note_id) or (list(nd.values())[0] if nd else {})
+                if d:
+                    title = str(d.get("title") or title)[:60]
+                    v = d.get("video", {})
+                    stream = (v.get("media") or {}).get("stream", {})
+                    for k in ["h265", "h264", "h266"]:
+                        if stream.get(k):
+                            video_url = stream[k][0].get("master_url", "")
+                            break
+            except:
+                pass
 
-        state = json.loads(m.group(1).replace('undefined', 'null'))
-        note_detail = None
-
-        # 从 state 中提取笔记数据
-        note_data = state.get("note", {}) or state.get("noteDetailMap", {})
-        if note_data:
-            note_detail = note_data.get(note_id) or note_data.get("note", {}) or list(note_data.values())[0] if note_data else {}
-
-        if not note_detail:
-            return _safe_json({"success": False, "error": "页面不包含视频数据"})
-
-        title = (note_detail.get("title") or f"xhs_{note_id}")[:60]
-        v = note_detail.get("video", {})
-
-        # 找视频URL
-        video_url = ""
-        if v:
-            # 方式1: video.media.stream
-            stream = v.get("media", {}).get("stream", {})
-            for key in ["h265", "h264", "h266", "av1"]:
-                urls = stream.get(key, [])
-                if urls:
-                    video_url = urls[0].get("master_url", "")
+        # 策略2: 直接从HTML匹配video URL (未登录也能匹配到缩略版数据)
+        if not video_url:
+            # 匹配 JSON 中的 video URLs
+            for pat in [
+                r'"master_url"\s*:\s*"(https?://[^"]+)"',
+                r'"url"\s*:\s*"(https?://[^"]*video[^"]*\.(?:mp4|m3u8)[^"]*)"',
+                r'"(?:backup_urls|url)"\s*:\s*\["?(https?://[^"\]]+)"?\]',
+                r'<video[^>]+src="([^"]+)"',
+                r'<source[^>]+src="([^"]+)"',
+            ]:
+                matches = re.findall(pat, html)
+                if matches:
+                    video_url = matches[0]
                     break
-            # 方式2: video.url (备用)
-            if not video_url:
-                video_url = v.get("url", "")
 
         if not video_url:
-            # 可能是图文帖
-            return _safe_json({"success": False, "error": "非视频帖或无视频地址"})
+            return _safe_json({"success": False, "error": "未找到视频地址（需登录或非视频帖）"})
 
         # 下载
         safe_title = re.sub(r'[\\/*?:"<>|]', '', title)
         filename = f"UD_{safe_title}.mp4"
         filepath = os.path.join(dl_dir, filename)
 
-        resp2 = req.get(video_url, headers=_xhs_headers(), stream=True, timeout=120)
+        # 小红书视频可能需要Referer
+        v_headers = dict(_xhs_headers())
+        v_headers["Referer"] = "https://www.xiaohongshu.com/"
+
+        resp2 = req.get(video_url, headers=v_headers, stream=True, timeout=120)
         total = int(resp2.headers.get('content-length', 0))
         downloaded = 0
         with open(filepath, "wb") as f:
@@ -319,7 +321,7 @@ def _download_xhs(url, dl_dir, progress_callback):
         })
 
     except Exception as e:
-        return _safe_json({"success": False, "error": f"小红书解析异常: {str(e)[:200]}"})
+        return _safe_json({"success": False, "error": f"下载异常: {str(e)[:150]}"})
 
 
 # ========== 小红书工具函数 ==========

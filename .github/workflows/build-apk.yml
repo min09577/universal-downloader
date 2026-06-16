@@ -76,10 +76,10 @@ jobs:
       - uses: softprops/action-gh-release@v2
         if: steps.apk.outputs.apk_path != ''
         with:
-          tag_name: v0.9.8-b${{ github.run_number }}
-          name: "全能下载器 v0.9.8 Build #${{ github.run_number }}"
+          tag_name: v0.9.9-b${{ github.run_number }}
+          name: "全能下载器 v0.9.9 Build #${{ github.run_number }}"
           body: |
-            ## 全能下载器 · OmniDL v0.9.8
+            ## 全能下载器 · OmniDL v0.9.9
             **泛在媒体获取引擎** — 智能多平台媒体下载客户端
 
             ### 下载
