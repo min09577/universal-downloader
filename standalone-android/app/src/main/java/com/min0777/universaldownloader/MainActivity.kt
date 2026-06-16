@@ -2,11 +2,16 @@ package com.min0777.universaldownloader
 
 import android.content.ClipData
 import android.content.ClipboardManager
+import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.os.Environment
+import android.provider.MediaStore
 import android.view.View
+import android.webkit.CookieManager
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.FileProvider
@@ -20,6 +25,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.File
+import java.io.FileInputStream
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -37,9 +43,15 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
+        // 启用 WebView Cookie 同步
+        CookieManager.getInstance().apply {
+            setAcceptCookie(true)
+            setAcceptThirdPartyCookies(null, true)
+        }
         setupUI()
         loadHistory()
         addLog("=== 万能下载器启动 ===")
+        addLog("Android SDK: ${Build.VERSION.SDK_INT}")
         handleSharedIntent()
     }
 
@@ -293,20 +305,24 @@ class MainActivity : AppCompatActivity() {
                 hideProgress()
                 if (result.getBoolean("success")) {
                     val filename = result.getString("filename")
-                    val filepath = result.optString("path", "")
+                    val tempPath = result.optString("path", "")
                     val sizeMb = result.getDouble("size_mb")
-                    lastFilePath = filepath
+
+                    // 通过 MediaStore 保存到系统 Downloads（相册可见）
+                    val savedPath = withContext(Dispatchers.IO) {
+                        saveToMediaStore(tempPath, filename)
+                    }
+
+                    lastFilePath = savedPath
                     lastDownloadUrl = url
                     addLog("✓ 下载完成: $filename (${"%.1f".format(sizeMb)} MB)")
-                    addLog("   路径: $filepath")
-                    // 显示结果 + 打开按钮
+                    addLog("   已保存到: $savedPath")
                     binding.tvResultTitle.text = "✅ $filename"
-                    binding.tvResultPlatform.text = "${"%.1f".format(sizeMb)} MB | $filepath"
+                    binding.tvResultPlatform.text = "${"%.1f".format(sizeMb)} MB | 已保存"
                     binding.layoutResult.visibility = View.VISIBLE
                     binding.btnDownload.isEnabled = true
                     binding.btnDownload.text = "📂 打开文件"
-                    Toast.makeText(this@MainActivity, "完成! $filename", Toast.LENGTH_LONG).show()
-                    addHistory(url, filename, filepath, sizeMb)
+                    addHistory(url, filename, savedPath, sizeMb)
                 } else {
                     addLog("✗ 下载失败: ${result.optString("error")}")
                     Toast.makeText(this@MainActivity, "失败: ${result.optString("error")}", Toast.LENGTH_LONG).show()
@@ -364,6 +380,55 @@ class MainActivity : AppCompatActivity() {
     private fun hideProgress() {
         binding.progressBar.visibility = View.GONE
         binding.layoutProgress.visibility = View.GONE
+    }
+
+    /**
+     * 通过 MediaStore 保存文件到系统 Downloads 目录（相册可见）
+     */
+    private fun saveToMediaStore(tempPath: String, displayName: String): String {
+        val tempFile = File(tempPath)
+        if (!tempFile.exists()) return tempPath
+
+        try {
+            val mimeType = when {
+                displayName.endsWith(".mp4") || displayName.endsWith(".mkv") || displayName.endsWith(".webm") -> "video/mp4"
+                displayName.endsWith(".jpg") || displayName.endsWith(".jpeg") -> "image/jpeg"
+                displayName.endsWith(".png") -> "image/png"
+                displayName.endsWith(".gif") -> "image/gif"
+                displayName.endsWith(".webp") -> "image/webp"
+                else -> "video/mp4"
+            }
+
+            val values = ContentValues().apply {
+                put(MediaStore.Downloads.DISPLAY_NAME, displayName)
+                put(MediaStore.Downloads.MIME_TYPE, mimeType)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
+                    put(MediaStore.Downloads.IS_PENDING, 1)
+                }
+            }
+
+            val uri = contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+                ?: return tempPath
+
+            contentResolver.openOutputStream(uri)?.use { out ->
+                FileInputStream(tempFile).use { inp -> inp.copyTo(out) }
+            }
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                values.clear()
+                values.put(MediaStore.Downloads.IS_PENDING, 0)
+                contentResolver.update(uri, values, null, null)
+            }
+
+            // 删除临时文件
+            tempFile.delete()
+
+            return "/sdcard/Download/$displayName"
+        } catch (e: Exception) {
+            addLog("MediaStore 保存失败: ${e.message}, 使用原始路径")
+            return tempPath
+        }
     }
 
     private fun saveHistory() {
