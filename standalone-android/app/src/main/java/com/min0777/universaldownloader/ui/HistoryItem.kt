@@ -4,5 +4,6 @@ data class HistoryItem(
     val url: String,
     val title: String,
     val size: String,
-    val time: Long
+    val time: Long,
+    val path: String = ""
 )

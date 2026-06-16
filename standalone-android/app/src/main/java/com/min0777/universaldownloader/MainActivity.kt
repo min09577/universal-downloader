@@ -3,10 +3,13 @@ package com.min0777.universaldownloader
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import android.view.View
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.FileProvider
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.min0777.universaldownloader.databinding.ActivityMainBinding
@@ -16,6 +19,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
+import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -26,6 +30,8 @@ class MainActivity : AppCompatActivity() {
     private val historyItems = mutableListOf<HistoryItem>()
     private var isDownloading = false
     private val logLines = mutableListOf<String>()
+    private var lastFilePath: String? = null
+    private var lastDownloadUrl: String? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -95,8 +101,13 @@ class MainActivity : AppCompatActivity() {
 
     private fun setupUI() {
         adapter = DownloadAdapter(historyItems) { item ->
-            binding.etUrl.setText(item.url)
-            analyzeUrl(item.url)
+            // 点击历史项：如果有路径则打开文件，否则重新分析
+            if (item.path != null && item.path.isNotEmpty()) {
+                openFile(item.path)
+            } else {
+                binding.etUrl.setText(item.url)
+                analyzeUrl(item.url)
+            }
         }
         binding.rvHistory.layoutManager = LinearLayoutManager(this)
         binding.rvHistory.adapter = adapter
@@ -111,6 +122,11 @@ class MainActivity : AppCompatActivity() {
         }
 
         binding.btnDownload.setOnClickListener {
+            // 如果刚下载完，按钮是"打开文件"
+            if (binding.btnDownload.text == "📂 打开文件") {
+                lastFilePath?.let { openFile(it) }
+                return@setOnClickListener
+            }
             val raw = binding.etUrl.text.toString().trim()
             if (raw.isNotEmpty()) {
                 val url = extractUrl(raw)
@@ -277,10 +293,20 @@ class MainActivity : AppCompatActivity() {
                 hideProgress()
                 if (result.getBoolean("success")) {
                     val filename = result.getString("filename")
+                    val filepath = result.optString("path", "")
                     val sizeMb = result.getDouble("size_mb")
+                    lastFilePath = filepath
+                    lastDownloadUrl = url
                     addLog("✓ 下载完成: $filename (${"%.1f".format(sizeMb)} MB)")
-                    Toast.makeText(this@MainActivity, "完成! $filename (${"%.1f".format(sizeMb)} MB)", Toast.LENGTH_LONG).show()
-                    addHistory(url, filename, sizeMb)
+                    addLog("   路径: $filepath")
+                    // 显示结果 + 打开按钮
+                    binding.tvResultTitle.text = "✅ $filename"
+                    binding.tvResultPlatform.text = "${"%.1f".format(sizeMb)} MB | $filepath"
+                    binding.layoutResult.visibility = View.VISIBLE
+                    binding.btnDownload.isEnabled = true
+                    binding.btnDownload.text = "📂 打开文件"
+                    Toast.makeText(this@MainActivity, "完成! $filename", Toast.LENGTH_LONG).show()
+                    addHistory(url, filename, filepath, sizeMb)
                 } else {
                     addLog("✗ 下载失败: ${result.optString("error")}")
                     Toast.makeText(this@MainActivity, "失败: ${result.optString("error")}", Toast.LENGTH_LONG).show()
@@ -297,14 +323,42 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun addHistory(url: String, filename: String, sizeMb: Double) {
-        val item = HistoryItem(url = url, title = filename,
+    private fun addHistory(url: String, filename: String, filepath: String, sizeMb: Double) {
+        val item = HistoryItem(url = url, title = filename, path = filepath,
             size = "${"%.1f".format(sizeMb)} MB", time = System.currentTimeMillis())
         historyItems.add(0, item)
         if (historyItems.size > 100) historyItems.removeAt(historyItems.size - 1)
         adapter.notifyItemInserted(0)
         binding.tvEmptyHistory.visibility = View.GONE
         saveHistory()
+    }
+
+    private fun openFile(path: String) {
+        try {
+            val file = File(path)
+            if (!file.exists()) {
+                Toast.makeText(this, "文件不存在: $path", Toast.LENGTH_LONG).show()
+                addLog("文件不存在: $path")
+                return
+            }
+            val uri = FileProvider.getUriForFile(this, "${packageName}.fileprovider", file)
+            val mime = when {
+                path.endsWith(".mp4") || path.endsWith(".mkv") || path.endsWith(".webm") -> "video/*"
+                path.endsWith(".jpg") || path.endsWith(".jpeg") -> "image/jpeg"
+                path.endsWith(".png") -> "image/png"
+                path.endsWith(".gif") -> "image/gif"
+                path.endsWith(".webp") -> "image/webp"
+                else -> "*/*"
+            }
+            val intent = Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(uri, mime)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            startActivity(Intent.createChooser(intent, "打开文件"))
+        } catch (e: Exception) {
+            addLog("打开文件失败: ${e.message}")
+            Toast.makeText(this, "无法打开: ${e.message}", Toast.LENGTH_SHORT).show()
+        }
     }
 
     private fun hideProgress() {
@@ -318,6 +372,7 @@ class MainActivity : AppCompatActivity() {
             val obj = JSONObject().apply {
                 put("url", item.url); put("title", item.title)
                 put("size", item.size); put("time", item.time)
+                put("path", item.path)
             }
             json.put(obj)
         }
@@ -332,7 +387,9 @@ class MainActivity : AppCompatActivity() {
                 val obj = json.getJSONObject(i)
                 historyItems.add(HistoryItem(
                     obj.getString("url"), obj.getString("title"),
-                    obj.getString("size"), obj.getLong("time")))
+                    obj.getString("size"), obj.getLong("time"),
+                    obj.optString("path", "")))
+            }
             }
             adapter.notifyDataSetChanged()
             binding.tvEmptyHistory.visibility = if (historyItems.isEmpty()) View.VISIBLE else View.GONE

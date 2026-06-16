@@ -6,8 +6,10 @@
 import sys
 import json
 import os
+import re
 import traceback
 from pathlib import Path
+from urllib.parse import urlparse, parse_qs, urlunparse
 
 # ========== yt-dlp 环境修复 ==========
 
@@ -23,17 +25,43 @@ def _fix_ssl():
 _fix_ssl()
 
 
-# ========== 工具函数 ==========
+# ========== URL 预处理 ==========
+
+def normalize_url(url):
+    """
+    预处理 URL，处理各平台特殊格式
+    - 小红书 discovery/item→explore
+    - 清理多余参数
+    """
+    parsed = urlparse(url)
+    path = parsed.path
+
+    # 小红书: /discovery/item/{id} → /explore/{id}
+    if "xiaohongshu.com" in parsed.netloc and "/discovery/item/" in path:
+        # 提取 note_id
+        m = re.search(r'/discovery/item/([a-f0-9]+)', path)
+        if m:
+            note_id = m.group(1)
+            new_url = f"https://www.xiaohongshu.com/explore/{note_id}"
+            return new_url
+
+    # 清理小红书 URL 多余参数
+    if "xiaohongshu.com" in parsed.netloc:
+        # 只保留基本路径
+        clean_path = re.sub(r'\?.*$', '', path)
+        return f"https://www.xiaohongshu.com{clean_path}"
+
+    return url
+
 
 def get_download_dir():
-    """获取 Android 下载目录"""
+    """获取下载目录 - 直接存到 Download 根目录，方便相册扫描"""
+    dl_dir = "/sdcard/Download"
     try:
-        downloads_dir = "/sdcard/Download"
-        dl_dir = os.path.join(downloads_dir, "UniversalDownloader")
         os.makedirs(dl_dir, exist_ok=True)
-        return dl_dir
     except:
-        return "/sdcard/Download/UniversalDownloader"
+        pass
+    return dl_dir
 
 
 def is_image_url(url):
@@ -44,7 +72,6 @@ def is_image_url(url):
 
 
 def _safe_json(obj):
-    """安全序列化 JSON，处理各种异常"""
     try:
         return json.dumps(obj, ensure_ascii=False)
     except:
@@ -54,21 +81,16 @@ def _safe_json(obj):
 # ========== 核心功能 ==========
 
 def analyze_url(url):
-    """
-    分析 URL，返回视频/图片信息
-    """
     try:
-        # 先导入 yt-dlp
         from yt_dlp import YoutubeDL
 
-        # Android 环境特化配置
+        url = normalize_url(url)
+
         ydl_opts = {
             "quiet": True,
             "no_warnings": True,
             "extract_flat": False,
-            "nocheckcertificate": False,
             "ignoreerrors": False,
-            # Android 上的 User-Agent
             "user_agent": "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
         }
 
@@ -86,52 +108,37 @@ def analyze_url(url):
         })
 
     except ImportError as e:
-        return _safe_json({
-            "success": False,
-            "error": f"yt-dlp 未正确安装: {e}",
-            "is_image": is_image_url(url),
-        })
+        return _safe_json({"success": False, "error": f"yt-dlp 未安装: {e}", "is_image": is_image_url(url)})
     except Exception as e:
-        err_msg = str(e)
-        # 常见错误提示
-        if "SSL" in err_msg or "certificate" in err_msg.lower():
-            err_msg = f"SSL证书错误（可尝试直链图片）: {err_msg[:100]}"
-        elif "Unsupported URL" in err_msg:
-            err_msg = f"不支持的链接格式: {err_msg[:100]}"
-        elif "HTTP Error" in err_msg:
-            err_msg = f"网络请求失败: {err_msg[:100]}"
-        
-        return _safe_json({
-            "success": False,
-            "error": err_msg,
-            "is_image": is_image_url(url),
-        })
+        err_msg = str(e)[:200]
+        if "Unsupported URL" in err_msg:
+            err_msg = f"不支持该链接 (已尝试格式转换): {err_msg[:150]}"
+        return _safe_json({"success": False, "error": err_msg, "is_image": is_image_url(url)})
 
 
 def download_video(url, progress_callback=None):
-    """下载视频到 Android 设备"""
     try:
         from yt_dlp import YoutubeDL
-        import certifi
 
+        url = normalize_url(url)
         download_dir = get_download_dir()
-        output_template = os.path.join(download_dir, "%(title).80s_%(id)s.%(ext)s")
+        output_template = os.path.join(download_dir, "UD_%(title).60s.%(ext)s")
 
         class AndroidProgressHook:
-            def __init__(self, callback):
-                self.callback = callback
+            def __init__(self, cb):
+                self.cb = cb
             def __call__(self, d):
                 if d.get("status") == "downloading":
                     total = d.get("total_bytes") or d.get("total_bytes_estimate", 0)
                     downloaded = d.get("downloaded_bytes", 0)
                     speed = d.get("speed", 0)
-                    if total > 0 and self.callback:
+                    if total > 0 and self.cb:
                         pct = int(downloaded * 100 / total)
                         spd = f"{speed/1024/1024:.1f} MB/s" if speed else ""
-                        try: self.callback(pct, spd)
+                        try: self.cb(pct, spd)
                         except: pass
-                elif d.get("status") == "finished" and self.callback:
-                    try: self.callback(100, "处理中...")
+                elif d.get("status") == "finished" and self.cb:
+                    try: self.cb(100, "处理中...")
                     except: pass
 
         ydl_opts = {
@@ -148,14 +155,17 @@ def download_video(url, progress_callback=None):
         with YoutubeDL(ydl_opts) as ydl:
             ydl.extract_info(url, download=True)
 
-        downloaded_files = sorted(
-            Path(download_dir).glob("*"),
+        # 找最新下载的文件
+        downloaded = sorted(
+            [f for f in Path(download_dir).iterdir() if f.is_file()],
             key=lambda p: p.stat().st_mtime, reverse=True
         )
 
-        if downloaded_files:
-            latest = downloaded_files[0]
+        if downloaded:
+            latest = downloaded[0]
             size = latest.stat().st_size
+            # 媒体扫描
+            _notify_media(latest)
             return _safe_json({
                 "success": True,
                 "filename": latest.name,
@@ -169,28 +179,24 @@ def download_video(url, progress_callback=None):
 
 
 def download_image(url):
-    """下载单张图片"""
     try:
         import requests as req
         import hashlib
 
         download_dir = get_download_dir()
-        url_hash = hashlib.md5(url.encode()).hexdigest()[:12]
-
+        url_hash = hashlib.md5(url.encode()).hexdigest()[:10]
         headers = {"User-Agent": "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36"}
+
         resp = req.get(url, headers=headers, timeout=30, stream=True)
         resp.raise_for_status()
 
         ct = resp.headers.get("content-type", "").lower()
-        ext_map = {"jpeg": "jpg", "jpg": "jpg", "png": "png", "webp": "webp", "gif": "gif", "avif": "avif"}
-        ext = "jpg"
-        for k, v in ext_map.items():
-            if k in ct:
-                ext = v
-                break
+        ext_map = {"jpeg": "jpg", "jpg": "jpg", "png": "png", "webp": "webp", "gif": "gif"}
+        ext = next((v for k, v in ext_map.items() if k in ct), "jpg")
 
-        filename = f"{url_hash}.{ext}"
+        filename = f"UD_{url_hash}.{ext}"
         filepath = os.path.join(download_dir, filename)
+
         with open(filepath, "wb") as f:
             for chunk in resp.iter_content(8192):
                 f.write(chunk)
@@ -198,11 +204,12 @@ def download_image(url):
         size = os.path.getsize(filepath)
         if size < 1024:
             os.remove(filepath)
-            return _safe_json({"success": False, "error": "文件太小，可能是无效图片"})
+            return _safe_json({"success": False, "error": "文件太小"})
 
+        _notify_media(Path(filepath))
         return _safe_json({
-            "success": True, "filename": filename,
-            "path": filepath, "size_mb": round(size / (1024*1024), 2),
+            "success": True, "filename": filename, "path": filepath,
+            "size_mb": round(size / (1024*1024), 2),
         })
 
     except Exception as e:
@@ -210,34 +217,31 @@ def download_image(url):
 
 
 def extract_images_from_page(url):
-    """从网页中提取所有图片链接"""
     try:
         import requests as req
-        import re
 
         headers = {"User-Agent": "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36"}
         resp = req.get(url, headers=headers, timeout=15)
         html = resp.text
 
         patterns = [
-            r'<img[^>]+src=["\']([^"\']+\.(?:jpg|jpeg|png|webp|gif|avif))["\']',
+            r'<img[^>]+src=["\']([^"\']+\.(?:jpg|jpeg|png|webp|gif))["\']',
             r'<meta\s+property="og:image"\s+content=["\']([^"\']+)["\']',
         ]
 
         images, seen = [], set()
         for pattern in patterns:
             for img in re.findall(pattern, html, re.IGNORECASE):
-                if img not in seen:
-                    seen.add(img)
-                    if img.startswith("//"): img = "https:" + img
-                    elif img.startswith("/"):
-                        from urllib.parse import urlparse
-                        p = urlparse(url)
-                        img = f"{p.scheme}://{p.netloc}{img}"
-                    elif not img.startswith("http"): continue
-                    skip = ["icon", "logo", "avatar", "favicon", "emoji", "pixel", "1x1"]
-                    if not any(k in img.lower() for k in skip):
-                        images.append(img)
+                if img in seen: continue
+                seen.add(img)
+                if img.startswith("//"): img = "https:" + img
+                elif img.startswith("/"):
+                    p = urlparse(url)
+                    img = f"{p.scheme}://{p.netloc}{img}"
+                elif not img.startswith("http"): continue
+                skip = ["icon", "logo", "avatar", "favicon", "emoji", "pixel", "1x1"]
+                if not any(k in img.lower() for k in skip):
+                    images.append(img)
 
         return _safe_json({"success": True, "images": images[:20], "total": len(images)})
 
@@ -246,7 +250,6 @@ def extract_images_from_page(url):
 
 
 def detect_platform(url):
-    """检测 URL 所属平台 - 返回 JSON 对象"""
     url_lower = url.lower()
     platforms = {
         "bilibili": ["bilibili.com", "b23.tv"],
@@ -267,11 +270,17 @@ def detect_platform(url):
     for platform, domains in platforms.items():
         for domain in domains:
             if domain in url_lower:
-                return _safe_json({
-                    "platform": platform,
-                    "is_image": is_image_url(url),
-                })
-    return _safe_json({
-        "platform": "unknown",
-        "is_image": is_image_url(url),
-    })
+                return _safe_json({"platform": platform, "is_image": is_image_url(url)})
+    return _safe_json({"platform": "unknown", "is_image": is_image_url(url)})
+
+
+def _notify_media(filepath):
+    """通知 Android 媒体扫描器"""
+    try:
+        import subprocess
+        subprocess.run([
+            "am", "broadcast", "-a", "android.intent.action.MEDIA_SCANNER_SCAN_FILE",
+            "-d", f"file://{filepath}"
+        ], capture_output=True, timeout=5)
+    except:
+        pass
