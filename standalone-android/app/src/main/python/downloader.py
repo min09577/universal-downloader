@@ -241,7 +241,7 @@ def _download_xhs(url, dl_dir, progress_callback):
     clean_url = _resolve_shortlink(clean_url)
     clean_url = normalize_url(clean_url)
 
-    # 先尝试分析——如果是纯图片帖，直接下载图片
+    # Step 1: 尝试从 HTML 检测图片帖 → 直接下载
     note_id = _extract_note_id(clean_url)
     if note_id:
         try:
@@ -258,15 +258,76 @@ def _download_xhs(url, dl_dir, progress_callback):
                     nd = (state.get("note") or {}).get("noteDetailMap", {})
                     detail = nd.get(note_id) or (list(nd.values())[0] if nd else {})
                     if detail:
-                        v = detail.get("video", {})
-                        has_video = bool(v and (v.get("media") or v.get("url")))
                         img_list = detail.get("image_list", [])
-                        if not has_video and img_list:
+                        if img_list:
                             return _download_xhs_images(detail, dl_dir, progress_callback)
         except:
             pass
 
-    return _download_fallback(clean_url, dl_dir, "www.xiaohongshu.com", progress_callback)
+    # Step 2: 尝试 yt-dlp (视频)
+    result = _download_fallback(clean_url, dl_dir, "www.xiaohongshu.com", progress_callback)
+    parsed = json.loads(result)
+    if parsed.get("success"):
+        return result
+
+    # Step 3: yt-dlp 失败 → 可能是图文帖，再次尝试从 HTML 提取
+    err = parsed.get("error", "")
+    if "No video formats" in err or "Unsupported URL" in err:
+        try:
+            import requests as req
+            headers = _xhs_headers()
+            cookies = _xhs_cookies()
+            if not cookies:
+                return result  # 没有 cookies 无法获取完整数据
+            page_url = f"https://www.xiaohongshu.com/explore/{note_id}"
+            resp = req.get(page_url, headers=headers, cookies=cookies, timeout=15)
+            if resp.status_code == 200:
+                html = resp.text
+                # 扩大搜索——不仅仅是 __INITIAL_STATE__
+                m = re.search(r'window\.__INITIAL_STATE__\s*=\s*({.+?})\s*</script>', html, re.DOTALL)
+                if m:
+                    state = json.loads(m.group(1).replace('undefined', 'null'))
+                    nd = (state.get("note") or {}).get("noteDetailMap", {})
+                    detail = nd.get(note_id) or (list(nd.values())[0] if nd else {})
+                    if detail and detail.get("image_list"):
+                        return _download_xhs_images(detail, dl_dir, progress_callback)
+                # 备用: 直接从 HTML 解析图片 URL
+                img_urls = re.findall(r'"url_default"\s*:\s*"(https?://[^"]+)"', html)
+                if img_urls:
+                    return _download_raw_images(img_urls, note_id, dl_dir, progress_callback)
+        except:
+            pass
+
+    return result  # 返回原始错误
+
+
+def _download_raw_images(img_urls, note_id, dl_dir, progress_callback):
+    """直接从 HTML 中匹配到的图片 URL 下载"""
+    try:
+        import requests as req
+        total = len(img_urls)
+        downloaded = []
+        for i, img_url in enumerate(img_urls):
+            ext = "jpg"
+            if ".png" in img_url.lower(): ext = "png"
+            if ".webp" in img_url.lower(): ext = "webp"
+            filename = f"UD_xhs_{note_id[:8]}_{i+1}.{ext}"
+            filepath = os.path.join(dl_dir, filename)
+            resp = req.get(img_url, headers=_xhs_headers(), stream=True, timeout=30)
+            with open(filepath, "wb") as f:
+                for chunk in resp.iter_content(65536):
+                    f.write(chunk)
+            downloaded.append(filepath)
+            if progress_callback:
+                try: progress_callback(int((i+1)*100/total), f"{i+1}/{total}")
+                except: pass
+        if downloaded:
+            tsize = sum(os.path.getsize(p) for p in downloaded)
+            return _safe_json({"success": True, "filename": f"xhs_{note_id[:8]} ({len(downloaded)}张)",
+                              "path": os.path.dirname(downloaded[0]), "size_mb": round(tsize/(1024*1024), 2)})
+    except:
+        pass
+    return _safe_json({"success": False, "error": "无法下载图片"})
 
 
 def _download_xhs_images(detail, dl_dir, progress_callback):
