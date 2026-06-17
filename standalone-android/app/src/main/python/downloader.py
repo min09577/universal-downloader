@@ -293,18 +293,19 @@ def _download_xhs(url, dl_dir, progress_callback):
                             return _download_xhs_images(detail, dl_dir, progress_callback)
                     except: pass
 
-                # 策略b: 正则搜索高清图 URL
+                # 策略b: 直接搜所有 ci.xiaohongshu.com 和 sns-webpic 图片链接
                 img_urls = []
                 for pat in [
-                    r'"url_default"\s*:\s*"(https?://[^"]+\.(?:jpg|jpeg|png|webp|heif)[^"]*)"',
-                    r'"url"\s*:\s*"(https?://[^"]+\.(?:jpg|jpeg|png|webp|heif)[^"]*)"',
-                    r'"trace_id":"[^"]+","url":"(https?://[^"]+)"',
-                    r"https?://ci\.xiaohongshu\.com/[^\s\"'<>]+\.(?:jpg|png|webp)",
+                    r'"url_default"\s*:\s*"(https?://[^"]*?ci\.xiaohongshu\.com[^"]*)"',
+                    r'"url"\s*:\s*"(https?://[^"]*?ci\.xiaohongshu\.com[^"]*)"',
+                    r'"url"\s*:\s*"(https?://[^"]*?(?:sns-webpic|sns-img|xhscdn)[^"]*)"',
+                    r'https?://ci\.xiaohongshu\.com/[^\s"\'<>\]]+',
                     r'"master_url"\s*:\s*"(https?://[^"]+)"',
                 ]:
                     for m in re.findall(pat, html):
                         u = m if isinstance(m, str) else m[0]
-                        if u not in img_urls and any(u.endswith(x) for x in ['.jpg','.jpeg','.png','.webp','.heif']):
+                        u_clean = u.split('?')[0]  # strip query params for dedup
+                        if u_clean not in img_urls:
                             img_urls.append(u)
                 if img_urls:
                     return _download_raw_images(img_urls, note_id, dl_dir, progress_callback)
