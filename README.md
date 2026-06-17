@@ -82,7 +82,7 @@ MediaStore API ←─────────────────── Down
 
 ## 📄 License
 
-MIT License
+GNU Affero General Public License v3.0
 
 <p align="center">
   <sub>Built with Kotlin · Python · Chaquopy · yt-dlp</sub>
