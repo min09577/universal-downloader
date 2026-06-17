@@ -277,24 +277,56 @@ def _download_xhs(url, dl_dir, progress_callback):
             import requests as req
             headers = _xhs_headers()
             cookies = _xhs_cookies()
-            if not cookies:
-                return result  # 没有 cookies 无法获取完整数据
             page_url = f"https://www.xiaohongshu.com/explore/{note_id}"
             resp = req.get(page_url, headers=headers, cookies=cookies, timeout=15)
             if resp.status_code == 200:
                 html = resp.text
-                # 扩大搜索——不仅仅是 __INITIAL_STATE__
+
+                # 策略a: __INITIAL_STATE__ image_list
                 m = re.search(r'window\.__INITIAL_STATE__\s*=\s*({.+?})\s*</script>', html, re.DOTALL)
                 if m:
-                    state = json.loads(m.group(1).replace('undefined', 'null'))
-                    nd = (state.get("note") or {}).get("noteDetailMap", {})
-                    detail = nd.get(note_id) or (list(nd.values())[0] if nd else {})
-                    if detail and detail.get("image_list"):
-                        return _download_xhs_images(detail, dl_dir, progress_callback)
-                # 备用: 直接从 HTML 解析图片 URL
-                img_urls = re.findall(r'"url_default"\s*:\s*"(https?://[^"]+)"', html)
+                    try:
+                        state = json.loads(m.group(1).replace('undefined', 'null'))
+                        nd = (state.get("note") or {}).get("noteDetailMap", {})
+                        detail = nd.get(note_id) or (list(nd.values())[0] if nd else {})
+                        if detail and detail.get("image_list"):
+                            return _download_xhs_images(detail, dl_dir, progress_callback)
+                    except: pass
+
+                # 策略b: 正则搜索高清图 URL
+                img_urls = []
+                for pat in [
+                    r'"url_default"\s*:\s*"(https?://[^"]+\.(?:jpg|jpeg|png|webp|heif)[^"]*)"',
+                    r'"url"\s*:\s*"(https?://[^"]+\.(?:jpg|jpeg|png|webp|heif)[^"]*)"',
+                    r'"trace_id":"[^"]+","url":"(https?://[^"]+)"',
+                    r'https?://ci\.xiaohongshu\.com/[^\s"'<>]+\.(?:jpg|png|webp)',
+                    r'"master_url"\s*:\s*"(https?://[^"]+)"',
+                ]:
+                    for m in re.findall(pat, html):
+                        u = m if isinstance(m, str) else m[0]
+                        if u not in img_urls and any(u.endswith(x) for x in ['.jpg','.jpeg','.png','.webp','.heif']):
+                            img_urls.append(u)
                 if img_urls:
                     return _download_raw_images(img_urls, note_id, dl_dir, progress_callback)
+
+                # 策略c: POST API
+                if cookies:
+                    import json as _json
+                    api_resp = req.post(
+                        "https://edith.xiaohongshu.com/api/sns/web/v1/note/feed",
+                        json={"source_note_id": note_id, "image_scenes": ["FD_PRV_WEBP", "FD_WM_WEBP"]},
+                        headers={**headers, "Content-Type": "application/json"},
+                        cookies=cookies, timeout=15
+                    )
+                    if api_resp.status_code == 200:
+                        api_data = api_resp.json()
+                        items = api_data.get("data", {}).get("items", [])
+                        if items:
+                            nc = items[0].get("note_card", {})
+                            il = nc.get("image_list", [])
+                            if il:
+                                d = {"title": nc.get("title", f"xhs_{note_id[:8]}"), "image_list": il}
+                                return _download_xhs_images(d, dl_dir, progress_callback)
         except:
             pass
 
