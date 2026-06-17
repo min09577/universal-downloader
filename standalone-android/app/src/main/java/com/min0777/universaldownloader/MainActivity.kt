@@ -44,7 +44,7 @@ class MainActivity : AppCompatActivity() {
         setContentView(binding.root)
         setupUI()
         loadHistory()
-        addLog("=== 全能下载器 v0.9.11 启动 ===")
+        addLog("=== 全能下载器 v1.0.0 启动 ===")
         handleSharedIntent()
     }
 
@@ -214,11 +214,22 @@ class MainActivity : AppCompatActivity() {
                 addLog("分析结果: success=${result.getBoolean("success")}, ${result.optString("error", "")}")
 
                 if (result.getBoolean("success")) {
-                    binding.tvResultTitle.text = result.optString("title", "未知")
-                    binding.tvResultPlatform.text = "上传者: ${result.optString("uploader", "")}"
+                    val imgCount = result.optInt("images_count", 0)
+                    if (imgCount > 0) {
+                        binding.tvResultTitle.text = result.optString("title", "小红书图文")
+                        binding.tvResultPlatform.text = "小红书图文 · 共 ${imgCount} 张图片"
+                        binding.btnDownload.text = "下载图片 (${imgCount}张)"
+                    } else if (result.getBoolean("success") && result.optInt("formats_count", 0) > 0) {
+                        binding.tvResultTitle.text = result.optString("title", "未知")
+                        binding.tvResultPlatform.text = "上传者: ${result.optString("uploader", "")}"
+                        binding.btnDownload.text = "下载视频"
+                    } else {
+                        binding.tvResultTitle.text = result.optString("title", "未知")
+                        binding.tvResultPlatform.text = "上传者: ${result.optString("uploader", "")}"
+                        binding.btnDownload.text = "下载视频"
+                    }
                     binding.layoutResult.visibility = View.VISIBLE
                     binding.btnDownload.isEnabled = true
-                    binding.btnDownload.text = "下载视频"
                     addLog("✓ 识别成功: ${result.optString("title", "")}")
                 } else if (result.optBoolean("is_image", false)) {
                     binding.tvResultTitle.text = "图片文件"

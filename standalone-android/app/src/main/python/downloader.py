@@ -236,11 +236,88 @@ def _make_progress_hook(cb):
 
 
 def _download_xhs(url, dl_dir, progress_callback):
-    """小红书下载：清理URL后交给 yt-dlp + cookies"""
+    """小红书下载：视频走 yt-dlp，图片直接下载"""
     clean_url = normalize_url(url)
     clean_url = _resolve_shortlink(clean_url)
-    clean_url = normalize_url(clean_url)  # 短链接解析后再次清理参数
+    clean_url = normalize_url(clean_url)
+
+    # 先尝试分析——如果是纯图片帖，直接下载图片
+    note_id = _extract_note_id(clean_url)
+    if note_id:
+        try:
+            import requests as req
+            headers = _xhs_headers()
+            cookies = _xhs_cookies()
+            page_url = f"https://www.xiaohongshu.com/explore/{note_id}"
+            resp = req.get(page_url, headers=headers, cookies=cookies, timeout=15)
+            if resp.status_code == 200:
+                html = resp.text
+                m = re.search(r'window\.__INITIAL_STATE__\s*=\s*({.+?})\s*</script>', html, re.DOTALL)
+                if m:
+                    state = json.loads(m.group(1).replace('undefined', 'null'))
+                    nd = (state.get("note") or {}).get("noteDetailMap", {})
+                    detail = nd.get(note_id) or (list(nd.values())[0] if nd else {})
+                    if detail:
+                        v = detail.get("video", {})
+                        has_video = bool(v and (v.get("media") or v.get("url")))
+                        img_list = detail.get("image_list", [])
+                        if not has_video and img_list:
+                            return _download_xhs_images(detail, dl_dir, progress_callback)
+        except:
+            pass
+
     return _download_fallback(clean_url, dl_dir, "www.xiaohongshu.com", progress_callback)
+
+
+def _download_xhs_images(detail, dl_dir, progress_callback):
+    """下载小红书图文帖的所有图片"""
+    try:
+        import requests as req
+        title = str(detail.get("title") or f"xhs_images")[:40]
+        safe_title = re.sub(r'[\\/*?:"<>|]', '', title)
+        img_list = detail.get("image_list", [])
+
+        downloaded = []
+        total = len(img_list)
+        for i, img in enumerate(img_list):
+            info = img.get("info_list", [{}])[0] if "info_list" in img else img
+            img_url = info.get("url_default") or info.get("url") or img.get("url", "")
+            if not img_url:
+                continue
+            if not img_url.startswith("http"):
+                img_url = f"https://{img_url}" if img_url.startswith("ci.xiaohongshu") else img_url
+                if not img_url.startswith("http"):
+                    continue
+
+            ext = "jpg"
+            if ".png" in img_url.lower(): ext = "png"
+            elif ".webp" in img_url.lower(): ext = "webp"
+            elif ".gif" in img_url.lower(): ext = "gif"
+
+            filename = f"UD_{safe_title}_{i+1}.{ext}"
+            filepath = os.path.join(dl_dir, filename)
+
+            headers = _xhs_headers()
+            resp = req.get(img_url, headers=headers, stream=True, timeout=30)
+            with open(filepath, "wb") as f:
+                for chunk in resp.iter_content(65536):
+                    f.write(chunk)
+
+            downloaded.append(filepath)
+            if progress_callback:
+                try: progress_callback(int((i+1)*100/total), f"{i+1}/{total}")
+                except: pass
+
+        if downloaded:
+            total_size = sum(os.path.getsize(p) for p in downloaded)
+            return _safe_json({
+                "success": True, "filename": f"{safe_title} ({len(downloaded)}张图)",
+                "path": os.path.dirname(downloaded[0]),
+                "size_mb": round(total_size/(1024*1024), 2),
+            })
+        return _safe_json({"success": False, "error": "未找到可下载的图片"})
+    except Exception as e:
+        return _safe_json({"success": False, "error": f"图片下载异常: {str(e)[:150]}"})
 
 
 # ========== 小红书工具函数 ==========
@@ -356,12 +433,38 @@ def _analyze_xhs(url):
         v = detail.get("video", {})
         has_video = bool(v and (v.get("media") or v.get("url")))
 
-        return _safe_json({
+        # 图文帖：提取图片列表
+        img_list = detail.get("image_list", [])
+        if img_list:
+            images = []
+            for img in img_list:
+                # 取高清图 URL
+                for key in ["url_default", "url", "original"]:
+                    u = img.get("info_list", [{}])[0].get(key, "") if "info_list" in img else img.get(key, "")
+                    if u and u.startswith("http"):
+                        images.append(u)
+                        break
+                if not images and isinstance(img, dict):
+                    u = img.get("url", "") or img.get("url_default", "")
+                    if u: images.append(u)
+
+        if not has_video and not img_list:
+            return _safe_json({"success": False, "error": "无视频或图片", "is_image": True})
+
+        result = {
             "success": True, "title": title,
-            "duration": v.get("duration", 0) if v else 0,
             "uploader": str((detail.get("user") or {}).get("nickname", "")),
-            "thumbnail": "", "formats_count": 1 if has_video else 0, "ext": "mp4",
-        })
+            "thumbnail": "", "ext": "mp4",
+        }
+        if has_video:
+            result["duration"] = v.get("duration", 0)
+            result["formats_count"] = 1
+        if img_list:
+            result["images"] = images
+            result["images_count"] = len(images)
+            result["note_id"] = note_id  # for downloading
+
+        return _safe_json(result)
     except Exception as e:
         return _safe_json({"success": False, "error": f"分析异常: {str(e)[:100]}", "is_image": True})
 
