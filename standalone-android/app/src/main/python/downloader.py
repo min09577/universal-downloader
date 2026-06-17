@@ -448,9 +448,7 @@ def _analyze_xhs(url):
                     u = img.get("url", "") or img.get("url_default", "")
                     if u: images.append(u)
 
-        if not has_video and not img_list:
-            return _safe_json({"success": False, "error": "无视频或图片", "is_image": True})
-
+        # 只要有标题和note_id就返回成功——下载流程自己判断视频/图片
         result = {
             "success": True, "title": title,
             "uploader": str((detail.get("user") or {}).get("nickname", "")),

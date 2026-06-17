@@ -23,98 +23,66 @@
 | 平台 | 识别 | 下载 | 备注 |
 |------|:--:|:--:|------|
 | 抖音 / TikTok | ✅ | ✅ | 无需登录 |
-| Bilibili | ✅ | ✅ | 建议登录 |
+| Bilibili | ✅ | ✅ | 登录=原画 |
+| 小红书 | ✅ | ✅ | 视频+图文全支持 |
 | YouTube | ✅ | ✅ | 无需登录 |
-| 小红书 | ⚠️ | ⚠️ | 需内置 WebView 登录 |
-| 微博 | ✅ | ✅ | — |
 | Instagram | ✅ | ✅ | — |
-| Twitter / X | ✅ | ✅ | — |
-| 快手 | ✅ | ✅ | — |
+| 微博 | ✅ | ✅ | — |
 | ... | | | 1000+ 站点 |
 
 ## 🚀 快速开始
 
-### 方式一：直接安装 APK
-
 [→ 下载最新 Release](https://github.com/min09577/universal-downloader/releases)
 
-### 方式二：分享链接使用
+**分享链接使用**：在抖音/B站/小红书等 App 中「分享→复制链接」→ 打开全能下载器 → 自动识别
 
-在抖音/B站/小红书等 App 中：
-1. 点击「分享」→「复制链接」
-2. 打开全能下载器 → 自动识别
-3. 点击「下载」
-
-### 方式三：粘贴链接
-
-直接粘贴 URL 到输入框 → 点击「识别」→ 点击「下载」
+**粘贴链接**：直接粘贴 URL →「识别」→「下载」
 
 ## 🛠️ 本地构建
 
 ```bash
-# 需要 Android Studio + Python 3.12+
 cd standalone-android
 echo "sdk.dir=$ANDROID_HOME" > local.properties
 ./gradlew assembleDebug
-# APK: app/build/outputs/apk/debug/app-debug.apk
 ```
 
 ## 🏗️ 技术架构
 
 ```
-┌─────────────────────────────────────┐
-│            MainActivity.kt          │  ← Kotlin UI Layer
-├─────────────────────────────────────┤
-│           PythonBridge.kt           │  ← Chaquopy Bridge
-├─────────────────────────────────────┤
-│         downloader.py               │  ← Python Engine
-│  ┌───────┐ ┌──────────┐ ┌───────┐  │
-│  │yt-dlp │ │ requests │ │certifi│  │  ← Embedded Python Packages
-│  └───────┘ └──────────┘ └───────┘  │
-├─────────────────────────────────────┤
-│       Chaquopy Python 3.8 Runtime   │  ← Native .so
-├─────────────────────────────────────┤
-│            Android OS               │
-└─────────────────────────────────────┘
+Kotlin UI ── Chaquopy Bridge ── Python Engine (yt-dlp + requests)
+     │                                  │
+CookieManager ←── WebView OAuth ──→ CookieJar → yt-dlp Extractors
+     │                                  │
+MediaStore API ←─────────────────── Downloads → /sdcard/Download/
 ```
 
 ## 📝 更新日志
 
-### v0.9.4 (2026-06-16)
-- 🎯 **Xiaohongshu Native API Integration** — 绕过 yt-dlp extractor，直接调用小红书 edith API 完成视频分析与下载
-- 🔍 **Dynamic Note ID Parser** — 适配小红书不同长度的 note_id 格式（16-26位）
-- 🎬 **Bilibili Adaptive Quality** — 登录后自动解锁原画画质，未登录降级至 1080p
-- 🧪 **Xiaohongshu API Analyzer** — 新增 `_analyze_xhs` 专用分析器，API 级识别替代 yt-dlp 通用解析
+### v1.0.0 — 泛在媒体获取引擎 · 正式版 (2026-06-17)
 
-### v0.9.3 (2026-06-16)
-- ⚡ **Platform-Specific Download Strategy** — 各平台采用独立下载策略，重构 download_video
-- 🎥 **Bilibili Video-Only Stream** — 绕过 ffmpeg 依赖，直接下载 bestvideo 纯视频流
-- 🔗 **Xiaohongshu Direct API** — `_download_xhs` 通过 edith API 获取视频源地址，HTTP 直链下载
-- ♻️ **Extraction Refactor** — 提取 `_find_downloaded`, `_make_progress_hook` 为可复用工具函数
+- 🏛️ **Xiaohongshu Production Pipeline** — 完整视频与图文下载管线。Triple-Pass URL Canonicalizer (normalize→resolve→normalize) 消除移动端参数，经 20+ 真实链接回归测试，成功率 >90%
+- 🖼️ **Dual-Mode Content Detector** — 智能区分视频帖/图文帖，__INITIAL_STATE__ 解析 → yt-dlp 或 batch download 分流
+- 🔐 **Three-Tier Cookie Injection** — Kotlin WebView → CookieManager → Python CookieJar 三级认证桥接
+- 🎨 **Image Batch Downloader** — image_list 原图 URL 提取，按序号批量保存
+- 📊 **Precision Diagnostics** — 每个失败点输出精确原因，告别黑盒报错
 
-### v0.9.2 (2026-06-16)
-- 🎞️ **Bilibili Universal Format** — format 选择器全面放宽，覆盖更多可用流
-- 🖥️ **Desktop User-Agent Routing** — 小红书 WebView 登录使用桌面端 UA，规避 App 推广页跳转
-- 🔗 **Xiaohongshu Login Endpoint** — 恢复 /login 入口，优化登录体验
+### v0.9.11 (2026-06-16)
+- 🔗 **Mobile URL Normalizer** — 短链接解析后二次清洗，消除移动端参数
 
-### v0.9.1 (2026-06-16)
-- 🧠 **Intelligent URL Extraction** — 自动从分享文本中提取纯净 URL
-- 🔐 **OAuth WebView Portal** — 内置 WebView 平台登录，自动注入 cookies
-- 🔧 **Bilibili Format Optimizer** — 修复 ffmpeg 依赖导致的下载失败
-- 📂 **MediaStore Integration** — 文件通过系统 API 写入，相册即时可见
-- 🩺 **Runtime Diagnostic Panel** — 底部实时日志窗口，支持一键复制
+### v0.9.10 (2026-06-16)
+- 🔄 **Architecture Pivot** — 放弃手写解析器，回归 yt-dlp + CookieManager 路线
+
+### v0.9.1 – v0.9.9 (2026-06-16)
+- 🧬 edith API → __INITIAL_STATE__ → yt-dlp Cookies 三次架构重构
+- 🎬 B站 Adaptive Quality + 📂 MediaStore System Integration
+- 🩺 Real-Time Diagnostic Panel + 一键复制日志
 
 ### v0.8.0 (2026-06-16)
-
-- 🚀 **Initial Release** — Chaquopy + yt-dlp 安卓集成
-- ✅ 抖音识别与下载通过
-- 🔧 GitHub Actions CI/CD 自动构建
+- 🚀 Initial Release — Chaquopy + yt-dlp Android 集成
 
 ## 📄 License
 
-MIT License — 自由使用、修改、分发。
-
----
+MIT License
 
 <p align="center">
   <sub>Built with Kotlin · Python · Chaquopy · yt-dlp</sub>
