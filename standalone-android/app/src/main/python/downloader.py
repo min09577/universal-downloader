@@ -299,7 +299,7 @@ def _download_xhs(url, dl_dir, progress_callback):
                     r'"url_default"\s*:\s*"(https?://[^"]+\.(?:jpg|jpeg|png|webp|heif)[^"]*)"',
                     r'"url"\s*:\s*"(https?://[^"]+\.(?:jpg|jpeg|png|webp|heif)[^"]*)"',
                     r'"trace_id":"[^"]+","url":"(https?://[^"]+)"',
-                    r'https?://ci\.xiaohongshu\.com/[^\s"'<>]+\.(?:jpg|png|webp)',
+                    r"https?://ci\.xiaohongshu\.com/[^\s\"'<>]+\.(?:jpg|png|webp)",
                     r'"master_url"\s*:\s*"(https?://[^"]+)"',
                 ]:
                     for m in re.findall(pat, html):
