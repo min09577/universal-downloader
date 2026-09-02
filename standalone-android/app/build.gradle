@@ -10,7 +10,7 @@ android {
         applicationId 'com.min0777.universaldownloader'
         minSdk 26
         targetSdk 34
-        versionCode 18
+        versionCode 19
         versionName '1.0.4'
 
         ndk {
@@ -27,9 +27,23 @@ android {
         }
     }
 
+    signingConfigs {
+        appSign {
+            storeFile rootProject.file('signing/app_sign.jks')
+            storePassword 'omnidl2026'
+            keyAlias 'universaldownloader'
+            keyPassword 'omnidl2026'
+        }
+    }
+
     buildTypes {
         debug {
             minifyEnabled false
+            signingConfig signingConfigs.appSign
+        }
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.appSign
         }
     }
 

@@ -41,8 +41,8 @@ jobs:
           echo "=== Build Info ==="
           echo "ANDROID_HOME=$ANDROID_HOME"
           echo "PYTHON_PATH=$PYTHON_PATH"
-          echo "=== Building ==="
-          ./gradlew assembleDebug --no-daemon --stacktrace 2>&1 | tee build-output.txt
+          echo "=== Building Release ==="
+          ./gradlew assembleRelease --no-daemon --stacktrace 2>&1 | tee build-output.txt
           EXIT=${PIPESTATUS[0]}
           echo "=== Build exit code: $EXIT ==="
           exit $EXIT
@@ -57,7 +57,8 @@ jobs:
 
       - name: Find and upload APK
         run: |
-          APK=$(find standalone-android -name "*.apk" -type f | head -1)
+          APK=$(find standalone-android -path "*release*" -name "*.apk" -type f | head -1)
+          [ -z "$APK" ] && APK=$(find standalone-android -name "*.apk" -type f | head -1)
           if [ -n "$APK" ]; then
             echo "APK: $APK ($(du -h "$APK" | cut -f1))"
             echo "apk_path=$APK" >> $GITHUB_OUTPUT
@@ -83,7 +84,9 @@ jobs:
             **泛在媒体获取引擎** — 智能多平台媒体下载客户端
 
             ### 下载
-            点击下方 **app-debug.apk** 下载安装
+            点击下方 **app-release.apk** 下载安装
+            > 🔏 自 v1.0.4 起使用固定签名，**后续版本均可直接覆盖安装，无需卸载旧版**
+            > （注：v1.0.4-b61 及更早的 debug 包签名不同，装过 debug 包需先卸载再装本版）
 
             ### 支持平台
             抖音 · B站 · YouTube · 小红书 · 微博 · Instagram · Twitter · 快手等 1000+ 网站
