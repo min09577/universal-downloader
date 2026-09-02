@@ -29,7 +29,7 @@ android {
 
     signingConfigs {
         appSign {
-            storeFile rootProject.file('signing/app_sign.jks')
+            storeFile rootProject.file('../signing/app_sign.jks')
             storePassword 'omnidl2026'
             keyAlias 'universaldownloader'
             keyPassword 'omnidl2026'
