@@ -34,12 +34,21 @@ object PythonBridge {
     }
 
     /**
-     * 下载视频
+     * 下载视频（带进度回调，回调在 Python 后台线程触发）
      */
     fun downloadVideo(url: String, onProgress: ((Int, String) -> Unit)? = null): JSONObject {
         init(MyApp.instance)
-        val result = getModule().callAttr("download_video", url, null).toString()
-        return JSONObject(result)
+        val module = getModule()
+        val result: com.chaquo.python.PyObject = if (onProgress != null) {
+            val cbObj = object : DownloadProgressCallback {
+                override fun onProgress(pct: Int, speed: String) { onProgress(pct, speed) }
+            }
+            // Kotlin 对象传给 Python；Python 侧 cb(pct, speed) 直接调用（后台线程）
+            module.callAttr("download_video", url, com.chaquo.python.PyObject.fromJava(cbObj))
+        } else {
+            module.callAttr("download_video", url, null)
+        }
+        return JSONObject(result.toString())
     }
 
     /**

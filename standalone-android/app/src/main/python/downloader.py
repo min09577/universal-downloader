@@ -176,6 +176,20 @@ def analyze_url(url):
         return _safe_json({"success": False, "error": str(e)[:300], "is_image": is_image_url(url)})
 
 
+def _has_ffmpeg():
+    """检测 ffmpeg 是否可用（Android Chaquopy 默认无；PC/内置 ffmpeg-kit 时有）"""
+    try:
+        import subprocess
+        subprocess.run(["ffmpeg", "-version"], capture_output=True, timeout=5)
+        return True
+    except Exception:
+        pass
+    loc = os.environ.get("UD_FFMPEG_PATH")
+    if loc and os.path.isfile(loc):
+        return True
+    return False
+
+
 def download_video(url, progress_callback=None):
     url = normalize_url(url)
     domain = _get_domain(url)
@@ -191,14 +205,20 @@ def download_video(url, progress_callback=None):
             "max_filesize": 500 * 1024 * 1024,
         })
 
+        has_ff = _has_ffmpeg()
+        if has_ff:
+            opts["ffmpeg_location"] = os.environ.get("UD_FFMPEG_PATH") or "ffmpeg"
+
         # === 平台特化 format ===
         if "bilibili.com" in domain:
-            # B站全分轨 → 只下 bestvideo（无音频但能看）
-            # 有 cookies（登录）→ 可以下原画；无cookies→ 限1080p
+            # B站 DASH: 视频/音频分轨。有 ffmpeg → bv+ba 合并出有声视频（实证 1080P+AAC）；
+            # 无 ffmpeg → yt-dlp 合并会 abort，降级 bv（高画质无声，与历史行为一致）
+            h264_first = "bestvideo[ext=mp4][height<=1080]+bestaudio[ext=m4a]/bestvideo+bestaudio/best"
+            original = "bestvideo+bestaudio/best"
             if _get_cookies("bilibili.com"):
-                opts["format"] = "bestvideo/best"  # 登录后可下原画
+                opts["format"] = original if has_ff else h264_first
             else:
-                opts["format"] = "bestvideo[height<=1080]/bestvideo/best"
+                opts["format"] = h264_first if has_ff else "bestvideo[height<=1080]/bestvideo/best"
             opts["http_headers"] = {"Referer": "https://www.bilibili.com/", "Origin": "https://www.bilibili.com"}
         elif "xiaohongshu.com" in domain or "xhslink.com" in domain or "xhslink.cn" in domain:
             # 小红书直接用 requests 解析 HTML
@@ -220,6 +240,7 @@ def download_video(url, progress_callback=None):
 
 
 def _make_progress_hook(cb):
+    """cb 可为 Python callable 或 Chaquopy 传入的 Java DownloadProgressCallback 对象"""
     class Hook:
         def __init__(s, c): s.c = c
         def __call__(s, d):
@@ -228,10 +249,10 @@ def _make_progress_hook(cb):
                 dl = d.get("downloaded_bytes", 0)
                 if t > 0:
                     try: s.c(int(dl*100/t), f"{d.get('speed',0)/1024/1024:.1f} MB/s" if d.get('speed') else "")
-                    except: pass
+                    except Exception: pass
             elif d.get("status") == "finished" and s.c:
                 try: s.c(100, "处理中...")
-                except: pass
+                except Exception: pass
     return Hook(cb)
 
 

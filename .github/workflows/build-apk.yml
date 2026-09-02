@@ -77,13 +77,16 @@ jobs:
       - uses: softprops/action-gh-release@v2
         if: steps.apk.outputs.apk_path != ''
         with:
-          tag_name: ai.1.0.8
-          name: "全能下载器 ai.1.0.8"
+          tag_name: ai.1.0.9
+          name: "全能下载器 ai.1.0.9"
           body: |
-            ## 全能下载器 · OmniDL ai.1.0.8
+            ## 全能下载器 · OmniDL ai.1.0.9
             **泛在媒体获取引擎** — 智能多平台媒体下载客户端
 
             ### 本版更新
+            - 🔊 B站视频有声：有 ffmpeg 环境（PC/后续内置）自动合并 video+audio 双轨（1080P+AAC 实证）
+            - 📊 下载进度回调贯通：Kotlin↔Python 双向桥接，App 内进度条/速度实时刷新
+            - 🧭 检测 ffmpeg 可用性自动选择最优格式链
             - 🔍 检查更新双通道回退（api.github.com 被限流时自动改走 releases/latest 重定向），国内网络可用性大幅提升
             - ⚙ 主页新增「关于」常驻入口（下载历史标题栏），点开即达仓库地址与检查更新
             - 🖋️ 版本号显示修正（ai.x.y.z 原样呈现）
