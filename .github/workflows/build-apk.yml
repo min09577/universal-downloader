@@ -77,10 +77,10 @@ jobs:
       - uses: softprops/action-gh-release@v2
         if: steps.apk.outputs.apk_path != ''
         with:
-          tag_name: v1.0.4-ai.1
-          name: "全能下载器 v1.0.4-ai.1"
+          tag_name: ai.1.0.4
+          name: "全能下载器 ai.1.0.4"
           body: |
-            ## 全能下载器 · OmniDL v1.0.4-ai.1
+            ## 全能下载器 · OmniDL ai.1.0.4
             **泛在媒体获取引擎** — 智能多平台媒体下载客户端
 
             ### 下载

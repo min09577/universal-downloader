@@ -11,7 +11,7 @@ android {
         minSdk 26
         targetSdk 34
         versionCode 20
-        versionName '1.0.4-ai.1'
+        versionName 'ai.1.0.4'
 
         ndk {
             abiFilters 'arm64-v8a', 'x86_64'
