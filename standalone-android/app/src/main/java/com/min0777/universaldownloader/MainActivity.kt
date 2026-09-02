@@ -46,8 +46,9 @@ class MainActivity : AppCompatActivity() {
         loadHistory()
         // 出处静默核验（不影响功能）
         SignatureMark.verify()
-        // 动态版本号（不再写死布局）
-        binding.tvVersion.text = "v" + (packageManager.getPackageInfo(packageName, 0).versionName ?: "")
+        // 动态版本号（ai.x.y.z 自带语义，不加 v 前缀）
+        val verName = packageManager.getPackageInfo(packageName, 0).versionName ?: ""
+        binding.tvVersion.text = verName
         // 作者徽章：点击直达仓库
         binding.tvAuthor.setOnClickListener { AboutBox.open(this, AboutBox.REPO_URL) }
         // 关于/检查更新：长按版本号触发

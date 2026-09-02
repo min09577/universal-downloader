@@ -77,13 +77,14 @@ jobs:
       - uses: softprops/action-gh-release@v2
         if: steps.apk.outputs.apk_path != ''
         with:
-          tag_name: ai.1.0.5
-          name: "全能下载器 ai.1.0.5"
+          tag_name: ai.1.0.6
+          name: "全能下载器 ai.1.0.6"
           body: |
-            ## 全能下载器 · OmniDL ai.1.0.5
+            ## 全能下载器 · OmniDL ai.1.0.6
             **泛在媒体获取引擎** — 智能多平台媒体下载客户端
 
             ### 本版更新
+            - 🖋️ 版本号显示修正（ai.x.y.z 原样呈现）
             - 🖋️ 主页作者署名徽章 + 关于弹窗（仓库地址 / GitHub 直达）
             - 🔍 关于弹窗内置「检查更新」：比对 GitHub 最新 Release，一键跳转下载
             - 🔏 内部出处核验模块（防篡改标记）
