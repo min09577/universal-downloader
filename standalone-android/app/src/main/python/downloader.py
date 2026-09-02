@@ -146,7 +146,7 @@ def analyze_url(url):
             }
 
         # 小红书特殊处理：直接尝试 API
-        if "xiaohongshu.com" in domain or "xhslink.com" in domain:
+        if "xiaohongshu.com" in domain or "xhslink.com" in domain or "xhslink.cn" in domain:
             xhs_result = _analyze_xhs(url)
             if xhs_result:
                 parsed = json.loads(xhs_result)
@@ -200,7 +200,7 @@ def download_video(url, progress_callback=None):
             else:
                 opts["format"] = "bestvideo[height<=1080]/bestvideo/best"
             opts["http_headers"] = {"Referer": "https://www.bilibili.com/", "Origin": "https://www.bilibili.com"}
-        elif "xiaohongshu.com" in domain or "xhslink.com" in domain:
+        elif "xiaohongshu.com" in domain or "xhslink.com" in domain or "xhslink.cn" in domain:
             # 小红书直接用 requests 解析 HTML
             return _download_xhs(url, dl_dir, progress_callback)
         else:
@@ -235,103 +235,111 @@ def _make_progress_hook(cb):
     return Hook(cb)
 
 
+def _fetch_note_detail(note_id, resolved_url):
+    """请求笔记页并解析详情，返回 (state, detail) 或 (None, None)。保留 xsec_token。"""
+    try:
+        import requests as req
+        headers = _xhs_headers()
+        cookies = _xhs_cookies()
+        page_url = f"https://www.xiaohongshu.com/explore/{note_id}"
+        qs = urlparse(resolved_url).query
+        if qs:
+            page_url += "?" + qs  # xsec_token 缺失时详情页不放数据
+        resp = req.get(page_url, headers=headers, cookies=cookies, timeout=15)
+        if resp.status_code != 200:
+            return None, None
+        from parse_state import parse_initial_state, unwrap_note_detail
+        state = parse_initial_state(resp.text)
+        if not state:
+            return None, None
+        return state, unwrap_note_detail(state, note_id)
+    except Exception:
+        return None, None
+
+
 def _download_xhs(url, dl_dir, progress_callback):
-    """小红书下载：视频走 yt-dlp，图片直接下载"""
+    """
+    小红书下载 (2026-09 适配版):
+      统一先解析页面详情 → 图文帖直接批量下载 / 视频帖直连 masterUrl 下载。
+      yt-dlp 仅作视频兜底（其对小红书适配常滞后）。
+    """
     clean_url = normalize_url(url)
     clean_url = _resolve_shortlink(clean_url)
     clean_url = normalize_url(clean_url)
-
-    # Step 1: 尝试从 HTML 检测图片帖 → 直接下载
     note_id = _extract_note_id(clean_url)
-    if note_id:
-        try:
-            import requests as req
-            headers = _xhs_headers()
-            cookies = _xhs_cookies()
-            page_url = f"https://www.xiaohongshu.com/explore/{note_id}"
-            resp = req.get(page_url, headers=headers, cookies=cookies, timeout=15)
-            if resp.status_code == 200:
-                html = resp.text
-                m = re.search(r'window\.__INITIAL_STATE__\s*=\s*({.+?})\s*</script>', html, re.DOTALL)
-                if m:
-                    state = json.loads(m.group(1).replace('undefined', 'null'))
-                    nd = (state.get("note") or {}).get("noteDetailMap", {})
-                    detail = nd.get(note_id) or (list(nd.values())[0] if nd else {})
-                    if detail:
-                        img_list = detail.get("image_list", [])
-                        if img_list:
-                            return _download_xhs_images(detail, dl_dir, progress_callback)
-        except:
-            pass
 
-    # Step 2: 尝试 yt-dlp (视频)
+    if note_id:
+        state, detail = _fetch_note_detail(note_id, clean_url)
+        if detail:
+            # 图文帖 → 批量下载
+            if (detail.get("imageList") or detail.get("image_list")) and detail.get("type") != "video":
+                return _download_xhs_images(detail, dl_dir, progress_callback)
+            # 视频帖 → 直连 masterUrl 下载
+            media = ((detail.get("video") or {}).get("media")) or {}
+            stream = media.get("stream") or {}
+            # stream 分组键不固定(旧版 h264/h265, 2026 版 EF4~EF7), 遍历所有组按码率取最优
+            candidates = []
+            for tier, arr in stream.items():
+                if isinstance(arr, list):
+                    for s in arr:
+                        if isinstance(s, dict) and s.get("masterUrl"):
+                            candidates.append(s)
+            video_url = ""
+            if candidates:
+                best = max(candidates, key=lambda s: s.get("videoBitrate") or 0)
+                video_url = best.get("masterUrl", "")
+            if not video_url:
+                video_url = media.get("url") or (detail.get("video") or {}).get("url") or ""
+            if video_url:
+                if video_url.startswith("//"):
+                    video_url = "https:" + video_url
+                return _download_xhs_video_direct(video_url, detail, note_id, dl_dir, progress_callback)
+
+    # 兜底: yt-dlp（视频帖解析失败或非 XHS 结构变化）
     result = _download_fallback(clean_url, dl_dir, "www.xiaohongshu.com", progress_callback)
     parsed = json.loads(result)
     if parsed.get("success"):
         return result
 
-    # Step 3: yt-dlp 失败 → 可能是图文帖，再次尝试从 HTML 提取
-    err = parsed.get("error", "")
-    if "No video formats" in err or "Unsupported URL" in err:
-        try:
-            import requests as req
-            headers = _xhs_headers()
-            cookies = _xhs_cookies()
-            page_url = f"https://www.xiaohongshu.com/explore/{note_id}"
-            resp = req.get(page_url, headers=headers, cookies=cookies, timeout=15)
-            if resp.status_code == 200:
-                html = resp.text
-
-                # 策略a: __INITIAL_STATE__ image_list
-                m = re.search(r'window\.__INITIAL_STATE__\s*=\s*({.+?})\s*</script>', html, re.DOTALL)
-                if m:
-                    try:
-                        state = json.loads(m.group(1).replace('undefined', 'null'))
-                        nd = (state.get("note") or {}).get("noteDetailMap", {})
-                        detail = nd.get(note_id) or (list(nd.values())[0] if nd else {})
-                        if detail and detail.get("image_list"):
-                            return _download_xhs_images(detail, dl_dir, progress_callback)
-                    except: pass
-
-                # 策略b: 直接搜所有 ci.xiaohongshu.com 和 sns-webpic 图片链接
-                img_urls = []
-                for pat in [
-                    r'"url_default"\s*:\s*"(https?://[^"]*?ci\.xiaohongshu\.com[^"]*)"',
-                    r'"url"\s*:\s*"(https?://[^"]*?ci\.xiaohongshu\.com[^"]*)"',
-                    r'"url"\s*:\s*"(https?://[^"]*?(?:sns-webpic|sns-img|xhscdn)[^"]*)"',
-                    r'https?://ci\.xiaohongshu\.com/[^\s"\'<>\]]+',
-                    r'"master_url"\s*:\s*"(https?://[^"]+)"',
-                ]:
-                    for m in re.findall(pat, html):
-                        u = m if isinstance(m, str) else m[0]
-                        u_clean = u.split('?')[0]  # strip query params for dedup
-                        if u_clean not in img_urls:
-                            img_urls.append(u)
-                if img_urls:
-                    return _download_raw_images(img_urls, note_id, dl_dir, progress_callback)
-
-                # 策略c: POST API
-                if cookies:
-                    import json as _json
-                    api_resp = req.post(
-                        "https://edith.xiaohongshu.com/api/sns/web/v1/note/feed",
-                        json={"source_note_id": note_id, "image_scenes": ["FD_PRV_WEBP", "FD_WM_WEBP"]},
-                        headers={**headers, "Content-Type": "application/json"},
-                        cookies=cookies, timeout=15
-                    )
-                    if api_resp.status_code == 200:
-                        api_data = api_resp.json()
-                        items = api_data.get("data", {}).get("items", [])
-                        if items:
-                            nc = items[0].get("note_card", {})
-                            il = nc.get("image_list", [])
-                            if il:
-                                d = {"title": nc.get("title", f"xhs_{note_id[:8]}"), "image_list": il}
-                                return _download_xhs_images(d, dl_dir, progress_callback)
-        except:
-            pass
+    # yt-dlp 也失败 → 最后再试一次页面图片提取（防风控临时失败）
+    if note_id:
+        state, detail = _fetch_note_detail(note_id, clean_url)
+        if detail and (detail.get("imageList") or detail.get("image_list")):
+            return _download_xhs_images(detail, dl_dir, progress_callback)
 
     return result  # 返回原始错误
+
+
+def _download_xhs_video_direct(video_url, detail, note_id, dl_dir, progress_callback):
+    """直连视频 masterUrl 下载（h264 stream，requests 流式）"""
+    try:
+        import requests as req
+        title = str(detail.get("title") or f"xhs_{note_id[:8]}")[:40]
+        safe_title = re.sub(r'[\\/*?:"<>|]', '', title) or f"xhs_{note_id[:8]}"
+        filepath = os.path.join(dl_dir, f"UD_{safe_title}.mp4")
+        headers = dict(_xhs_headers())
+        headers["Referer"] = "https://www.xiaohongshu.com/"
+        resp = req.get(video_url, headers=headers, stream=True, timeout=30)
+        resp.raise_for_status()
+        total = int(resp.headers.get("content-length", 0))
+        done = 0
+        with open(filepath, "wb") as f:
+            for chunk in resp.iter_content(1 << 16):
+                f.write(chunk)
+                done += len(chunk)
+                if progress_callback and total:
+                    try:
+                        progress_callback(int(done * 100 / total), f"{done/1048576:.1f}/{total/1048576:.1f}MB")
+                    except Exception:
+                        pass
+        size = os.path.getsize(filepath)
+        if size < 10 * 1024:
+            os.remove(filepath)
+            return _safe_json({"success": False, "error": f"视频文件过小({size}B)，可能被风控"})
+        return _safe_json({"success": True, "filename": f"{safe_title}.mp4",
+                           "path": filepath, "size_mb": round(size / 1048576, 2)})
+    except Exception as e:
+        return _safe_json({"success": False, "error": f"视频直连下载失败: {str(e)[:150]}"})
 
 
 def _download_raw_images(img_urls, note_id, dl_dir, progress_callback):
@@ -364,24 +372,18 @@ def _download_raw_images(img_urls, note_id, dl_dir, progress_callback):
 
 
 def _download_xhs_images(detail, dl_dir, progress_callback):
-    """下载小红书图文帖的所有图片"""
+    """下载小红书图文帖的所有图片（URL 提取统一走 _xhs_image_urls，兼容新旧字段）"""
     try:
         import requests as req
         title = str(detail.get("title") or f"xhs_images")[:40]
         safe_title = re.sub(r'[\\/*?:"<>|]', '', title)
-        img_list = detail.get("image_list", [])
+        img_list = _xhs_image_urls(detail)
 
         downloaded = []
         total = len(img_list)
-        for i, img in enumerate(img_list):
-            info = img.get("info_list", [{}])[0] if "info_list" in img else img
-            img_url = info.get("url_default") or info.get("url") or img.get("url", "")
-            if not img_url:
-                continue
-            if not img_url.startswith("http"):
-                img_url = f"https://{img_url}" if img_url.startswith("ci.xiaohongshu") else img_url
-                if not img_url.startswith("http"):
-                    continue
+        if not total:
+            return _safe_json({"success": False, "error": "未找到可下载的图片"})
+        for i, img_url in enumerate(img_list):
 
             ext = "jpg"
             if ".png" in img_url.lower(): ext = "png"
@@ -406,7 +408,8 @@ def _download_xhs_images(detail, dl_dir, progress_callback):
             total_size = sum(os.path.getsize(p) for p in downloaded)
             return _safe_json({
                 "success": True, "filename": f"{safe_title} ({len(downloaded)}张图)",
-                "path": os.path.dirname(downloaded[0]),
+                # path 指向真实首图文件（历史记录可点击打开）；多图时真实文件按 _N 序号排布
+                "path": downloaded[0],
                 "size_mb": round(total_size/(1024*1024), 2),
             })
         return _safe_json({"success": False, "error": "未找到可下载的图片"})
@@ -417,8 +420,8 @@ def _download_xhs_images(detail, dl_dir, progress_callback):
 # ========== 小红书工具函数 ==========
 
 def _resolve_shortlink(url):
-    """跟踪短链接重定向获取真实 URL"""
-    if "xhslink.com" in url:
+    """跟踪短链接重定向获取真实 URL (支持 xhslink.com / xhslink.cn)"""
+    if "xhslink.com" in url or "xhslink.cn" in url:
         try:
             import requests as req
             resp = req.get(url, headers=_xhs_headers(), cookies=_xhs_cookies(),
@@ -494,9 +497,13 @@ def _find_downloaded(dl_dir):
 
 
 def _analyze_xhs(url):
-    """小红书分析：抓HTML提取 __INITIAL_STATE__"""
+    """小红书分析：抓HTML提取 __INITIAL_STATE__ (2026-09 适配 new Map/camelCase/xsec_token)"""
     try:
         import requests as req
+        try:
+            from parse_state import parse_initial_state, unwrap_note_detail
+        except ImportError:
+            return _safe_json({"success": False, "error": "parse_state 模块缺失", "is_image": True})
 
         resolved = _resolve_shortlink(url)
         note_id = _extract_note_id(resolved)
@@ -507,42 +514,28 @@ def _analyze_xhs(url):
         cookies = _xhs_cookies()
 
         page_url = f"https://www.xiaohongshu.com/explore/{note_id}"
-        resp = req.get(page_url, headers=headers, cookies=cookies, timeout=15)
+        qs = urlparse(resolved).query
+        if qs:
+            page_url += "?" + qs  # 保留 xsec_token，缺它详情页不给数据
 
+        resp = req.get(page_url, headers=headers, cookies=cookies, timeout=15)
         if resp.status_code != 200:
             return _safe_json({"success": False, "error": f"页面返回 {resp.status_code}", "is_image": True})
 
-        html = resp.text
-        m = re.search(r'window\.__INITIAL_STATE__\s*=\s*({.+?})\s*</script>', html, re.DOTALL)
-        if not m:
-            return _safe_json({"success": False, "error": "未找到页面数据", "is_image": True})
+        state = parse_initial_state(resp.text)
+        if not state:
+            return _safe_json({"success": False, "error": "页面数据解析失败(可能被风控)", "is_image": True})
 
-        state = json.loads(m.group(1).replace('undefined', 'null'))
-        nd = (state.get("note") or {}).get("noteDetailMap", {})
-        detail = nd.get(note_id) or (list(nd.values())[0] if nd else {})
+        detail = unwrap_note_detail(state, note_id)
         if not detail:
             return _safe_json({"success": False, "error": "页面不含笔记", "is_image": True})
 
-        title = str(detail.get("title") or f"xhs_{note_id[:8]}")[:60]
-        v = detail.get("video", {})
-        has_video = bool(v and (v.get("media") or v.get("url")))
+        title = str(detail.get("title") or detail.get("desc") or f"xhs_{note_id[:8]}")[:60]
+        v = detail.get("video") or {}
+        has_video = bool(detail.get("type") == "video" or v.get("media") or v.get("url"))
 
-        # 图文帖：提取图片列表
-        img_list = detail.get("image_list", [])
-        if img_list:
-            images = []
-            for img in img_list:
-                # 取高清图 URL
-                for key in ["url_default", "url", "original"]:
-                    u = img.get("info_list", [{}])[0].get(key, "") if "info_list" in img else img.get(key, "")
-                    if u and u.startswith("http"):
-                        images.append(u)
-                        break
-                if not images and isinstance(img, dict):
-                    u = img.get("url", "") or img.get("url_default", "")
-                    if u: images.append(u)
+        images = _xhs_image_urls(detail)
 
-        # 只要有标题和note_id就返回成功——下载流程自己判断视频/图片
         result = {
             "success": True, "title": title,
             "uploader": str((detail.get("user") or {}).get("nickname", "")),
@@ -551,7 +544,7 @@ def _analyze_xhs(url):
         if has_video:
             result["duration"] = v.get("duration", 0)
             result["formats_count"] = 1
-        if img_list:
+        if images:
             result["images"] = images
             result["images_count"] = len(images)
             result["note_id"] = note_id  # for downloading
@@ -559,6 +552,38 @@ def _analyze_xhs(url):
         return _safe_json(result)
     except Exception as e:
         return _safe_json({"success": False, "error": f"分析异常: {str(e)[:100]}", "is_image": True})
+
+
+def _xhs_image_urls(detail):
+    """
+    从笔记详情提取图片 URL 列表，兼容新旧两种字段命名:
+      新版 camelCase: imageList / urlDefault / infoList[].url
+      旧版 snake_case: image_list / url_default / info_list[].url_default
+    质量优先级: urlDefault(WB_DFT 档) > infoList 非预览场景 > 预览图
+    """
+    images = []
+    img_list = detail.get("imageList") or detail.get("image_list") or []
+    for img in img_list:
+        if not isinstance(img, dict):
+            continue
+        u = img.get("urlDefault") or img.get("url_default") or ""
+        if not u:
+            infos = img.get("infoList") or img.get("info_list") or []
+            # 优先非预览(WB_DFT等)，预览(WB_PRV)垫底
+            ordered = sorted(infos, key=lambda it: ("PRV" in str(it.get("imageScene", "")), ))
+            for it in ordered:
+                if isinstance(it, dict):
+                    cand = it.get("url") or it.get("urlDefault") or it.get("url_default") or ""
+                    if cand:
+                        u = cand
+                        break
+        u = u or img.get("url") or ""
+        if u.startswith("//"):
+            u = "https:" + u
+        if u.startswith("http"):
+            if u not in images:
+                images.append(u)
+    return images
 
 
 def download_image(url):
@@ -631,7 +656,7 @@ def detect_platform(url):
         "youtube": ["youtube.com", "youtu.be"],
         "douyin": ["douyin.com", "tiktok.com"],
         "kuaishou": ["kuaishou.com"],
-        "xiaohongshu": ["xiaohongshu.com", "xhslink.com"],
+        "xiaohongshu": ["xiaohongshu.com", "xhslink.com", "xhslink.cn"],
         "weibo": ["weibo.com", "weibo.cn"],
         "twitter": ["twitter.com", "x.com"],
         "instagram": ["instagram.com"],

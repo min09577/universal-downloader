@@ -50,3 +50,9 @@ standalone-android/.gradle/
 standalone-android/local.properties
 standalone-android/app/build/
 standalone-android/.idea/
+
+# Local test harness secrets (never commit)
+tests/cookies_*.txt
+tests/regress_last.json
+.venv/
+tests/xhs_urls.txt
