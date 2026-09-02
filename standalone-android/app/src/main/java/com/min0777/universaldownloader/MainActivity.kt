@@ -51,11 +51,8 @@ class MainActivity : AppCompatActivity() {
         binding.tvVersion.text = verName
         // 作者徽章：点击直达仓库
         binding.tvAuthor.setOnClickListener { AboutBox.open(this, AboutBox.REPO_URL) }
-        // 关于/检查更新：长按版本号触发
-        binding.tvVersion.setOnLongClickListener {
-            AboutBox.show(this, isStartup = false)
-            true
-        }
+        // ⚙ 关于入口（设置式）：仓库地址 / 检查更新 / 作者信息
+        binding.btnSettings.setOnClickListener { AboutBox.show(this, isStartup = false) }
         addLog("=== 全能下载器 ${binding.tvVersion.text} 启动 ===")
         handleSharedIntent()
         // 开屏弹窗：展示仓库地址与作者，带「去 GitHub」「检查更新」入口

@@ -263,6 +263,18 @@
             android:text="清空"
             android:textColor="#F87171"
             android:textSize="13sp" />
+
+        <TextView
+            android:id="@+id/btnSettings"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:clickable="true"
+            android:focusable="true"
+            android:padding="8dp"
+            android:paddingStart="12dp"
+            android:text="⚙ 关于"
+            android:textColor="#8A93B2"
+            android:textSize="13sp" />
     </LinearLayout>
 
     <!-- 空状态 -->
