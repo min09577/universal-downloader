@@ -44,8 +44,23 @@ class MainActivity : AppCompatActivity() {
         setContentView(binding.root)
         setupUI()
         loadHistory()
-        addLog("=== 全能下载器 ai.1.0.4 启动 ===")
+        // 出处静默核验（不影响功能）
+        SignatureMark.verify()
+        // 动态版本号（不再写死布局）
+        binding.tvVersion.text = "v" + (packageManager.getPackageInfo(packageName, 0).versionName ?: "")
+        // 作者徽章：点击直达仓库
+        binding.tvAuthor.setOnClickListener { AboutBox.open(this, AboutBox.REPO_URL) }
+        // 关于/检查更新：长按版本号触发
+        binding.tvVersion.setOnLongClickListener {
+            AboutBox.show(this, isStartup = false)
+            true
+        }
+        addLog("=== 全能下载器 ${binding.tvVersion.text} 启动 ===")
         handleSharedIntent()
+        // 开屏弹窗：展示仓库地址与作者，带「去 GitHub」「检查更新」入口
+        binding.root.post {
+            if (!isFinishing && !isDestroyed) AboutBox.show(this, isStartup = true)
+        }
     }
 
     // ========== 日志系统 ==========

@@ -25,10 +25,21 @@
             android:textStyle="bold" />
 
         <TextView
+            android:id="@+id/tvAuthor"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:background="@drawable/bg_button_small"
+            android:paddingHorizontal="8dp"
+            android:paddingVertical="3dp"
+            android:text="by min09577"
+            android:textColor="#8A93B2"
+            android:textSize="10sp"
+            android:layout_marginEnd="8dp" />
+
+        <TextView
             android:id="@+id/tvVersion"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="v1.0.3"
             android:textColor="#4A4E5E"
             android:textSize="11sp"
             android:layout_marginEnd="8dp" />
