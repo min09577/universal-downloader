@@ -32,7 +32,7 @@ object AboutBox {
         else
             "本应用完全免费，请勿在任何付费渠道购买。"
 
-        AlertDialog.Builder(activity, R.style.Theme_AppCompat_Dialog)
+        AlertDialog.Builder(activity)
             .setView(view)
             .setPositiveButton("去 GitHub ⭐") { _, _ -> open(activity, REPO_URL) }
             .setNeutralButton("检查更新") { _, _ -> checkUpdate(activity) }
