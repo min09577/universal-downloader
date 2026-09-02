@@ -190,6 +190,15 @@ def _has_ffmpeg():
     return False
 
 
+def _pick_newest(names, dl_dir, exts):
+    """从文件名集合中选出最新的指定扩展名文件（返回绝对路径或 None）"""
+    cands = [os.path.join(dl_dir, n) for n in names
+             if os.path.splitext(n)[1].lower().strip(".") in exts]
+    if not cands:
+        return None
+    return max(cands, key=os.path.getmtime)
+
+
 def download_video(url, progress_callback=None):
     url = normalize_url(url)
     domain = _get_domain(url)
@@ -211,15 +220,55 @@ def download_video(url, progress_callback=None):
 
         # === 平台特化 format ===
         if "bilibili.com" in domain:
-            # B站 DASH: 视频/音频分轨。有 ffmpeg → bv+ba 合并出有声视频（实证 1080P+AAC）；
-            # 无 ffmpeg → 纯 bv 单流（高画质无声；bv+ba 无合并器会直接 abort，绝不能选）
+            # B站 DASH: 视频/音频分轨
             if has_ff:
+                # ffmpeg 可用 → 单次下载并合并出有声视频（实证 1080P+AAC）
                 opts["format"] = "bestvideo+bestaudio/best"
-            elif _get_cookies("bilibili.com"):
-                opts["format"] = "bestvideo/best"          # 登录: 原画
-            else:
-                opts["format"] = "bestvideo[height<=1080]/bestvideo/best"  # 匿名: 1080p封顶
+                opts["http_headers"] = {"Referer": "https://www.bilibili.com/", "Origin": "https://www.bilibili.com"}
+                cf = _cookies_file(domain)
+                if cf: opts["cookiefile"] = cf
+                with YoutubeDL(opts) as ydl:
+                    ydl.extract_info(url, download=True)
+                return _find_downloaded(dl_dir)
+            # 无 ffmpeg → 两遍单流下载（单流不触发 yt-dlp 合并器），交给 Kotlin MediaMuxer 无损拼装
+            h264_v = "bestvideo[vcodec^=avc1][ext=mp4][height<=1080]/bestvideo[ext=mp4][height<=1080]/bestvideo[height<=1080]/bestvideo"
+            a_only = "bestaudio[ext=m4a]/bestaudio"
+            if not _get_cookies("bilibili.com"):
+                h264_v = h264_v.replace("[height<=1080]", "")  # 匿名本来就被限, 条件冗余无害; 保留表达式简洁
             opts["http_headers"] = {"Referer": "https://www.bilibili.com/", "Origin": "https://www.bilibili.com"}
+            cf = _cookies_file(domain)
+            if cf: opts["cookiefile"] = cf
+
+            before = set(os.listdir(dl_dir))
+            opts_v = dict(opts); opts_v["format"] = h264_v
+            with YoutubeDL(opts_v) as ydl:
+                ydl.extract_info(url, download=True)
+            after_v = set(os.listdir(dl_dir)) - before
+            v_file = _pick_newest(after_v, dl_dir, ("mp4", "mkv", "webm"))
+
+            before = set(os.listdir(dl_dir))
+            opts_a = dict(opts); opts_a["format"] = a_only
+            with YoutubeDL(opts_a) as ydl:
+                ydl.extract_info(url, download=True)
+            after_a = set(os.listdir(dl_dir)) - before - after_v
+            a_file = _pick_newest(after_a, dl_dir, ("m4a", "mp3", "mp4"))
+
+            if not v_file:
+                return _safe_json({"success": False, "error": "视频流下载失败(可能触发风控, 请重试或保持登录)"})
+            if not a_file:
+                # 音频流失败 → 至少交付无声视频
+                return _safe_json({"success": True, "filename": os.path.basename(v_file),
+                                   "path": v_file, "size_mb": round(os.path.getsize(v_file)/(1024*1024), 2),
+                                   "note": "音频流下载失败, 本次无声音"})
+
+            total = os.path.getsize(v_file) + (os.path.getsize(a_file) if a_file else 0)
+            return _safe_json({
+                "success": True, "needs_remux": True,
+                "filename": os.path.splitext(os.path.basename(v_file))[0],
+                "path": v_file, "files": [v_file, a_file],
+                "size_mb": round(total/(1024*1024), 2),
+            })
+
         elif "xiaohongshu.com" in domain or "xhslink.com" in domain or "xhslink.cn" in domain:
             # 小红书直接用 requests 解析 HTML
             return _download_xhs(url, dl_dir, progress_callback)
