@@ -408,8 +408,9 @@ def _download_xhs_images(detail, dl_dir, progress_callback):
             total_size = sum(os.path.getsize(p) for p in downloaded)
             return _safe_json({
                 "success": True, "filename": f"{safe_title} ({len(downloaded)}张图)",
-                # path 指向真实首图文件（历史记录可点击打开）；多图时真实文件按 _N 序号排布
+                # path 指向真实首图文件；files 为全部落盘文件（App 端逐个 MediaStore 落盘）
                 "path": downloaded[0],
+                "files": downloaded,
                 "size_mb": round(total_size/(1024*1024), 2),
             })
         return _safe_json({"success": False, "error": "未找到可下载的图片"})
@@ -433,12 +434,22 @@ def _resolve_shortlink(url):
 
 
 def _extract_note_id(url):
-    """从小红书URL提取 note_id"""
+    """从小红书URL提取 note_id (兼容路径式与query式: /explore?target_note_id=xxx)"""
     m = re.search(r'/item/([a-f0-9]{16,26})', url)
     if m: return m.group(1)
     m = re.search(r'/explore/([a-f0-9]{16,26})', url)
     if m: return m.group(1)
-    m = re.search(r'([a-f0-9]{16,26})', url)
+    # App 分享长链: id 在 query 里 (target_note_id/note_id)，勿被 appuid 干扰
+    try:
+        qs = parse_qs(urlparse(url).query)
+        for k in ("target_note_id", "note_id", "noteId"):
+            v = qs.get(k, [None])[0]
+            if v and re.fullmatch(r'[a-f0-9]{16,26}', v):
+                return v
+    except Exception:
+        pass
+    # 兜底仅在路径内找（全 URL 扫描会误抓 appuid 等十六进制参数）
+    m = re.search(r'([a-f0-9]{16,26})', urlparse(url).path)
     if m: return m.group(1)
     return None
 

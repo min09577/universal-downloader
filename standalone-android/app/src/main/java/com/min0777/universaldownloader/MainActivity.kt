@@ -321,20 +321,36 @@ class MainActivity : AppCompatActivity() {
                 hideProgress()
                 if (result.getBoolean("success")) {
                     val filename = result.getString("filename")
-                    val tempPath = result.optString("path", "")
                     val sizeMb = result.getDouble("size_mb")
 
-                    // 通过 MediaStore 保存到系统 Downloads（相册可见）
+                    // 多图任务: files 数组逐个落盘; 单文件: path 直落
+                    val tempFiles = mutableListOf<String>()
+                    result.optJSONArray("files")?.let { arr ->
+                        for (i in 0 until arr.length()) tempFiles.add(arr.getString(i))
+                    }
+                    if (tempFiles.isEmpty()) {
+                        result.optString("path", "").takeIf { it.isNotEmpty() }?.let { tempFiles.add(it) }
+                    }
+
                     val savedPath = withContext(Dispatchers.IO) {
-                        saveToMediaStore(tempPath, filename)
+                        if (tempFiles.size <= 1) {
+                            tempFiles.firstOrNull()?.let { saveToMediaStore(it, filename) } ?: ""
+                        } else {
+                            // 多图: 每个临时文件按 "<显示名>_N.<真实扩展名>" 落盘
+                            val firstPath = tempFiles.firstOrNull()?.let { saveToMediaStore(it, multiName(filename, 1)) } ?: ""
+                            tempFiles.drop(1).forEachIndexed { idx, f ->
+                                saveToMediaStore(f, multiName(filename, idx + 2))
+                            }
+                            firstPath
+                        }
                     }
 
                     lastFilePath = savedPath
                     lastDownloadUrl = url
-                    addLog("✓ 下载完成: $filename (${"%.1f".format(sizeMb)} MB)")
+                    addLog("✓ 下载完成: $filename (${String.format("%.1f", sizeMb)} MB, ${tempFiles.size}个文件)")
                     addLog("   已保存到: $savedPath")
                     binding.tvResultTitle.text = "✅ $filename"
-                    binding.tvResultPlatform.text = "${"%.1f".format(sizeMb)} MB | 已保存"
+                    binding.tvResultPlatform.text = "${String.format("%.1f", sizeMb)} MB | 已保存"
                     binding.layoutResult.visibility = View.VISIBLE
                     binding.btnDownload.isEnabled = true
                     binding.btnDownload.text = "📂 打开文件"
@@ -399,6 +415,15 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
+     * 从显示名 "xxx (3张图)" 剥离统计后缀并拼出第 n 个文件名 "xxx_3.jpg"
+     * (扩展名由 saveToMediaStore 按临时文件真实类型决定)
+     */
+    private fun multiName(displayName: String, n: Int): String {
+        val base = displayName.replace(Regex("\\s*\\(\\d+张图\\)$"), "")
+        return "${base}_$n"
+    }
+
+    /**
      * 通过 MediaStore 保存文件到系统 Downloads 目录（相册可见）
      */
     private fun saveToMediaStore(tempPath: String, displayName: String): String {
@@ -406,17 +431,20 @@ class MainActivity : AppCompatActivity() {
         if (!tempFile.exists()) return tempPath
 
         try {
+            // 真实扩展名优先取临时文件自身（Python 端按图片类型命名），显示名兜底
+            val realExt = tempFile.extension.lowercase()
+            val nameWithType = if (realExt.isNotEmpty()) "$displayName.$realExt" else displayName
             val mimeType = when {
-                displayName.endsWith(".mp4") || displayName.endsWith(".mkv") || displayName.endsWith(".webm") -> "video/mp4"
-                displayName.endsWith(".jpg") || displayName.endsWith(".jpeg") -> "image/jpeg"
-                displayName.endsWith(".png") -> "image/png"
-                displayName.endsWith(".gif") -> "image/gif"
-                displayName.endsWith(".webp") -> "image/webp"
-                else -> "video/mp4"
+                nameWithType.endsWith(".mp4") || nameWithType.endsWith(".mkv") || nameWithType.endsWith(".webm") -> "video/mp4"
+                nameWithType.endsWith(".jpg") || nameWithType.endsWith(".jpeg") -> "image/jpeg"
+                nameWithType.endsWith(".png") -> "image/png"
+                nameWithType.endsWith(".gif") -> "image/gif"
+                nameWithType.endsWith(".webp") -> "image/webp"
+                else -> "application/octet-stream"
             }
 
             val values = ContentValues().apply {
-                put(MediaStore.Downloads.DISPLAY_NAME, displayName)
+                put(MediaStore.Downloads.DISPLAY_NAME, nameWithType)
                 put(MediaStore.Downloads.MIME_TYPE, mimeType)
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                     put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
@@ -440,7 +468,7 @@ class MainActivity : AppCompatActivity() {
             // 删除临时文件
             tempFile.delete()
 
-            return "/sdcard/Download/$displayName"
+            return "/sdcard/Download/$nameWithType"
         } catch (e: Exception) {
             addLog("MediaStore 保存失败: ${e.message}, 使用原始路径")
             return tempPath
