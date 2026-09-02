@@ -231,10 +231,9 @@ def download_video(url, progress_callback=None):
                     ydl.extract_info(url, download=True)
                 return _find_downloaded(dl_dir)
             # 无 ffmpeg → 两遍单流下载（单流不触发 yt-dlp 合并器），交给 Kotlin MediaMuxer 无损拼装
-            h264_v = "bestvideo[vcodec^=avc1][ext=mp4][height<=1080]/bestvideo[ext=mp4][height<=1080]/bestvideo[height<=1080]/bestvideo"
+            # 视频流必须 H.264(avc1)+mp4: MediaMuxer 不支持 AV1(100026) / HEVC 兼容性差(100113)
+            h264_v = "bestvideo[vcodec^=avc1][height<=1080]/bestvideo[vcodec^=avc1]/bestvideo[vcodec^=avc1][ext=mp4]"
             a_only = "bestaudio[ext=m4a]/bestaudio"
-            if not _get_cookies("bilibili.com"):
-                h264_v = h264_v.replace("[height<=1080]", "")  # 匿名本来就被限, 条件冗余无害; 保留表达式简洁
             opts["http_headers"] = {"Referer": "https://www.bilibili.com/", "Origin": "https://www.bilibili.com"}
             cf = _cookies_file(domain)
             if cf: opts["cookiefile"] = cf
