@@ -10,8 +10,8 @@ android {
         applicationId 'com.min0777.universaldownloader'
         minSdk 26
         targetSdk 34
-        versionCode 19
-        versionName '1.0.4'
+        versionCode 20
+        versionName '1.0.4-ai.1'
 
         ndk {
             abiFilters 'arm64-v8a', 'x86_64'
