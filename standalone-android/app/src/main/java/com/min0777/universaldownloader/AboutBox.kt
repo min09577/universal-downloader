@@ -53,42 +53,71 @@ object AboutBox {
             activity.packageManager.getPackageInfo(activity.packageName, 0).versionName ?: ""
         } catch (e: Exception) { "" }
 
-        // Release tag 形如 ai.1.0.4；本地 versionName 同格式
         Thread {
-            var latest = ""
-            var body = ""
-            try {
-                val conn = URL(API_URL).openConnection() as HttpURLConnection
-                conn.connectTimeout = 8000
-                conn.readTimeout = 8000
-                conn.setRequestProperty("User-Agent", "OmniDL/$local")
-                if (conn.responseCode == 200) {
-                    val json = JSONObject(conn.inputStream.bufferedReader().readText())
-                    latest = json.optString("tag_name", "")
-                    body = json.optString("body", "").take(300)
-                }
-            } catch (_: Exception) { }
-
+            val latest = fetchLatest()
             activity.runOnUiThread {
-                if (latest.isEmpty()) {
-                    android.widget.Toast.makeText(activity, "网络异常，检查失败", Toast_SHORT).show()
+                if (latest == null) {
+                    android.widget.Toast.makeText(activity,
+                        "无法连接 GitHub（网络受限，请稍后再试）", android.widget.Toast.LENGTH_LONG).show()
                     return@runOnUiThread
                 }
                 if (isNewer(latest, local)) {
                     AlertDialog.Builder(activity)
                         .setTitle("发现新版本 $latest")
-                        .setMessage("当前版本 $local\n\n$body")
+                        .setMessage("当前版本 $local\n\n是否前往 Release 页面下载？")
                         .setPositiveButton("前往下载") { _, _ -> open(activity, LATEST_URL) }
                         .setNegativeButton("下次再说", null)
                         .show()
                 } else {
-                    android.widget.Toast.makeText(activity, "已是最新版本 ($local)", Toast_SHORT).show()
+                    android.widget.Toast.makeText(activity, "已是最新版本 ($local)", android.widget.Toast.LENGTH_SHORT).show()
                 }
             }
         }.start()
     }
 
-    private val Toast_SHORT get() = android.widget.Toast.LENGTH_SHORT
+    /**
+     * 获取最新版本号，双通道回退:
+     *   1. api.github.com（国内常被限流/拦截）
+     *   2. github.com releases/latest 302 跳转（最终 URL 含 tag 名，通常可达）
+     * 全部失败返回 null。
+     */
+    private fun fetchLatest(): String? {
+        // 通道1: REST API
+        try {
+            val conn = URL(API_URL).openConnection() as HttpURLConnection
+            conn.connectTimeout = 8000
+            conn.readTimeout = 8000
+            conn.setRequestProperty("User-Agent", "OmniDL-App")
+            val code = conn.responseCode
+            android.util.Log.d(TAG, "api.github.com -> $code")
+            if (code == 200) {
+                val json = JSONObject(conn.inputStream.bufferedReader().readText())
+                val tag = json.optString("tag_name", "")
+                if (tag.isNotEmpty()) return tag
+            }
+        } catch (e: Exception) {
+            android.util.Log.d(TAG, "api channel failed: ${e.message}")
+        }
+        // 通道2: releases/latest 重定向
+        try {
+            val conn = URL(LATEST_URL).openConnection() as HttpURLConnection
+            conn.connectTimeout = 8000
+            conn.readTimeout = 8000
+            conn.instanceFollowRedirects = true
+            conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14)")
+            val code = conn.responseCode
+            val finalUrl = conn.url.toString()
+            android.util.Log.d(TAG, "github.com -> $code, final=$finalUrl")
+            if (code in 200..399) {
+                Regex("releases/tag/([^/?#]+)").find(finalUrl)?.groupValues?.get(1)?.let { return it }
+            }
+        } catch (e: Exception) {
+            android.util.Log.d(TAG, "web channel failed: ${e.message}")
+        }
+        return null
+    }
+
+    private const val TAG = "OmniDL-Update"
 
     /** 语义化比较: ai.1.0.5 vs ai.1.0.4 → true。解析首个 ai. 前缀后的三段数字 */
     fun isNewer(remote: String, local: String): Boolean {
