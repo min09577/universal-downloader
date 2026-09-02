@@ -1,89 +1,201 @@
-# 全能下载器 · OmniDL
+# <p align="center">全能下载器 · OmniDL</p>
+<p align="center"><strong>泛在媒体获取引擎 | 粘贴任意链接 · 自动识别 · 1000+ 站点图片/视频下载 | Android 本地运行 · 纯离线 · 零服务器 | Kotlin · Python · yt-dlp</strong></p>
+<p align="center">
+    <a href="https://github.com/min09577/universal-downloader/releases/latest">
+        <img alt="Latest Release" src="https://img.shields.io/github/v/release/min09577/universal-downloader?style=flat&color=blue">
+    </a>
+    <a href="https://github.com/min09577/universal-downloader/actions/workflows/build-apk.yml">
+        <img alt="Build Status" src="https://github.com/min09577/universal-downloader/actions/workflows/build-apk.yml/badge.svg?branch=main">
+    </a>
+    <a href="https://github.com/min09577/universal-downloader/blob/main/LICENSE">
+        <img alt="License" src="https://img.shields.io/badge/License-AGPL%203.0-green.svg">
+    </a>
+    <img alt="API" src="https://img.shields.io/badge/API-26%2B-brightgreen">
+    <img alt="yt-dlp" src="https://img.shields.io/badge/yt--dlp-1000%2B%20sites-orange">
+</p>
 
-> **Omnipresent Media Acquisition Engine** — 泛在媒体获取引擎
-
-全平台智能媒体下载工具，覆盖 1000+ 网站的视频/图片下载，支持 Android 原生运行。
+> ### 👤 维护者近况 / Maintainer's Corner
+> 当你发现本仓库没有更新版本或修复 Bug 时，维护者大概率正在 **旅行、跑外卖、打游戏、写小说**，
+> 或是在 **美 / 韩 / 日 股市与外汇市场** 间辗转腾挪，亦或是在领取失业金——生活的剧本从不单一。
+>
+> 但请放心：**每一枚被提交的 Bug，都会被逐一排查、逐一修复。**
+>
+> - 📱 **测试设备**：三星 Galaxy S 系列旗舰 + Z Fold 系列（港版系统）
+> - 🚀 **规划中**：后续有望纳入 OPPO / vivo / 小米 真机覆盖
+> - 🐉 **鸿蒙现状**：暂未持有鸿蒙真机，鸿蒙端 Bug 短期内较难定位修复；如有鸿蒙设备的朋友，欢迎自行下载源码尝试修复
 
 ---
 
-## 🎯 核心特性
+## ☕ 随缘赞助 (Sponsor)
+
+这个项目是利用业余时间"用爱发电"写出来的，能帮到大家我非常开心。不过随着项目的不断完善，跑测试消耗的 API Tokens 确实超出了我的预期，加上长时间的调试，也搭进去了不少休息时间（笑）。
+
+如果这个项目恰好为你解决了问题，或者帮你省下了一些折腾的时间，欢迎随缘投喂。你的打赏将全部用于"回血"高昂的 API 账单，这也是让我能毫无顾忌持续更新它的最大动力。
+
+当然，完全自愿，千万别有任何压力。只要你觉得好用，点个 **Star** 同样是对我极大的鼓励！
+
+> **Tip:** 为了避免大家承担高昂的转账手续费，建议通过 **BNB Smart Chain (BEP-20)** 网络进行转账。感谢支持！
+
+<p align="center">
+    <img src="docs/images/sponsor_qr.png" alt="Sponsor QR (Binance · BEP-20)" width="360">
+</p>
+
+<p align="center"><i>币安收款二维码 · Binance Wallet QR（USDT · BNB Smart Chain / BEP-20）</i></p>
+
+---
+
+## ✨ 为什么选择全能下载器 / Why OmniDL
 
 | 特性 | 说明 |
 |------|------|
-| 🧠 **Intelligent URL Parser** | 基于 yt-dlp 的智能链接解析引擎，自动识别 1000+ 站点 |
-| 📱 **Fully Offline** | 纯本地执行，无需服务器，隐私零泄露 |
-| 🐍 **Python-on-Android** | Chaquopy 内嵌 Python 3.8 运行时，直接在设备上运行 yt-dlp |
-| 📂 **System Integration** | MediaStore API 写入，文件直接出现在系统相册和文件管理器 |
-| 📋 **Share Intent** | 从任何 App 分享链接到全能下载器，自动提取 URL |
+| 🧠 **智能链接解析** | 基于 yt-dlp 抽取引擎，自动识别 1000+ 站点，粘贴即下 |
+| 📱 **Fully Offline** | 纯本地执行，无服务器中转，隐私零泄露 |
+| 🐍 **Python-on-Android** | Chaquopy 内嵌 Python 运行时，yt-dlp 直接在设备上跑 |
+| 📕 **小红书深度适配** | 2026 前端全面适配：图文/视频双管线、`xsec_token`、短链 `.cn` 域名、EF4~EF7 码率选优 |
+| 🖼️ **图文批量下载** | 多图笔记按序号批量保存，直取 WB_DFT 高清档 |
+| 🎬 **视频直连下载** | 解析 `masterUrl` 按 `videoBitrate` 选最优流，不依赖第三方适配进度 |
+| 🔐 **三级 Cookie 桥** | WebView 登录 → CookieManager → Python CookieJar，登录即原画 |
+| 📲 **分享即下** | 任意 App「分享→复制链接」→ 打开即自动识别提取 |
 | 📊 **Live Progress** | 实时下载进度、速度显示 |
-| 🔍 **Diagnostic Logger** | 内置运行时日志面板，一键复制排错 |
+| 📂 **System Integration** | MediaStore 写入，文件直达系统相册与文件管理器 |
+| 🔍 **Diagnostic Logger** | 内置运行时日志面板，一键复制排障 |
+| 🧪 **PC 测试台** | `tests/xhs_harness.py` 秒级回归真实管线，改码不必重装 APK |
+| 🚫 **零广告** | 无横幅、无推广、无追踪，纯粹下载体验 |
+| 📦 **一键安装** | [Release 页面](https://github.com/min09577/universal-downloader/releases/latest) 直接下载 APK |
 
-## 📦 支持平台
+---
 
-| 平台 | 识别 | 下载 | 备注 |
-|------|:--:|:--:|------|
-| 抖音 / TikTok | ✅ | ✅ | 无需登录 |
-| Bilibili | ✅ | ✅ | 登录=原画 |
-| 小红书 | ✅ | ✅ | 视频+图文全支持 |
-| YouTube | ✅ | ✅ | 无需登录 |
-| Instagram | ✅ | ✅ | — |
-| 微博 | ✅ | ✅ | — |
-| ... | | | 1000+ 站点 |
+## 📖 简介
 
-## 🚀 快速开始
+全能下载器（OmniDL）是一个**纯本地**的全网媒体下载 Android 客户端：Kotlin UI + Chaquopy 内嵌 Python 运行时，在设备上直接运行 yt-dlp 与自研解析管线，覆盖 1000+ 站点的视频/图片下载。不经过任何服务器，无账号体系，无埋点。
 
-[→ 下载最新 Release](https://github.com/min09577/universal-downloader/releases)
+> **⚠️ 声明：** 本软件及源码仅供学习交流使用，严禁用于商业用途。与各平台官方无关，请尊重内容创作者权益。
 
-**分享链接使用**：在抖音/B站/小红书等 App 中「分享→复制链接」→ 打开全能下载器 → 自动识别
+## 🆕 v1.0.4 — 小红书 2026 管线重构
 
-**粘贴链接**：直接粘贴 URL →「识别」→「下载」
+> ### 🧬 站点改版全面适配，图文视频双双回归
+> 小红书前端重构导致旧管线全面失效，本版本逐项击破：
+> 页面内联数据混入 `new Map()` JS 构造 → 新增括号配平解析器；
+> 字段全面 camelCase 化（`imageList`/`urlDefault`/`infoList`）→ 新旧双格式兼容；
+> 笔记详情多包一层 `.note` → 统一解包。
+>
+> ### 🔗 短链新域名 + 视频直连
+> 分享短链迁移至 **`xhslink.cn`**（旧 `.com` 同样支持）；
+> 视频不再依赖 yt-dlp 适配进度——直连 `masterUrl`，遍历 `EF4~EF7` 清晰度分组按码率选最优；
+> 图片直取 **WB_DFT 高清档**（比预览图大 3~4 倍）。
+>
+> ### 🧪 附赠：PC 测试台
+> `tests/xhs_harness.py` 直接加载 App 内真实 Python 管线，`probe / download / regress`
+> 三个命令秒级回归，把「改码→CI→装 APK→手测」的分钟级循环压到秒级。
 
-## 🛠️ 本地构建
+## 💡 使用贴士 / Pro Tips
+
+| 场景 | 建议 |
+|------|------|
+| 📋 **粘贴链接** | 支持带中文口令的整段分享文本，自动提取纯净 URL |
+| 📲 **分享即下** | 在抖音/B站/小红书点「分享」，选择全能下载器，自动识别 |
+| 🔐 **B站原画** | 先在 App 内「B站登录」完成 WebView 登录，再下载即原画 |
+| 📕 **小红书图文** | 多图笔记批量保存，历史记录点击可回看原图 |
+| 📋 **排障辅助** | 日志面板 → 一键复制 → 提交 issue 时附上，事半功倍 |
+| 🧪 **开发者** | `python tests/xhs_harness.py regress` 跑回归，`cookies_xhs.txt` 放登录态（已 gitignore） |
+
+## 💬 反馈与贡献 / Feedback & Contribution
+
+🐛 发现 Bug？💡 有好想法？欢迎通过 GitHub Issues 提交：
+
+<p align="center">
+    <a href="https://github.com/min09577/universal-downloader/issues">
+        <img alt="GitHub Issues" src="https://img.shields.io/github/issues/min09577/universal-downloader?style=flat&color=red&label=%F0%9F%90%9B%20Bug%20%2F%20Feature">
+    </a>
+</p>
+
+> 提交时请携带**应用日志**（主界面日志面板 → 复制），越详细修复越快。
+
+## 📋 版本迭代记录 / Version History
+
+| 版本 / Version | 日期 / Date | 说明 / Description |
+|---|---|---|
+| v0.8.0 | 2026-06-16 | 🚀 首发版本 — Chaquopy + yt-dlp Android 集成 |
+| v0.9.1~0.9.11 | 2026-06-16 | 三次架构重构：edith API → `__INITIAL_STATE__` → yt-dlp + Cookies |
+| v1.0.0 | 2026-06-17 | **📕 小红书生产管线** — Triple-Pass URL 规范化 + 图文批量下载 |
+| v1.0.1~1.0.3 | 2026-06-17 | 小红书三策略降级 + xsec_token + 图片正则修复 |
+| v1.0.4 | 2026-09-02 | **🧬 2026 管线重构** — `new Map` 解析器 + camelCase 兼容 + `xsec_token` 贯通 + `xhslink.cn` + EF 码率选优直连 + PC 测试台 |
+| [⬇️ 最新 Release](https://github.com/min09577/universal-downloader/releases/latest) | | **← APK 下载点这里 / Download APK here** |
+
+---
+
+## 🛠️ 构建说明 / Build Instructions
+
+### 环境要求 / Prerequisites
+
+- **JDK 17+**
+- **Android SDK** with **compileSdk 34**
+- **Python 3.8+**（Chaquopy 构建期需要，`PYTHON_PATH` 环境变量指向其可执行文件）
+- Android Studio (推荐 / Recommended)
+
+### 构建命令 / Build Commands
 
 ```bash
 cd standalone-android
 echo "sdk.dir=$ANDROID_HOME" > local.properties
+export PYTHON_PATH=$(which python3)   # Windows: set PYTHON_PATH=path\to\python.exe
 ./gradlew assembleDebug
 ```
 
-## 🏗️ 技术架构
+构建产物位于 `standalone-android/app/build/outputs/apk/` 目录。
 
-```
-Kotlin UI ── Chaquopy Bridge ── Python Engine (yt-dlp + requests)
-     │                                  │
-CookieManager ←── WebView OAuth ──→ CookieJar → yt-dlp Extractors
-     │                                  │
-MediaStore API ←─────────────────── Downloads → /sdcard/Download/
-```
+> 💡 推送至 `main` 分支会自动触发 GitHub Actions 构建，并在 Release 页发布 APK。
 
-## 📝 更新日志
+---
 
-### v1.0.0 — 泛在媒体获取引擎 · 正式版 (2026-06-17)
+## ⚠️ 免责声明 / Disclaimer
 
-- 🏛️ **Xiaohongshu Production Pipeline** — 完整视频与图文下载管线。Triple-Pass URL Canonicalizer (normalize→resolve→normalize) 消除移动端参数，经 20+ 真实链接回归测试，成功率 >90%
-- 🖼️ **Dual-Mode Content Detector** — 智能区分视频帖/图文帖，__INITIAL_STATE__ 解析 → yt-dlp 或 batch download 分流
-- 🔐 **Three-Tier Cookie Injection** — Kotlin WebView → CookieManager → Python CookieJar 三级认证桥接
-- 🎨 **Image Batch Downloader** — image_list 原图 URL 提取，按序号批量保存
-- 📊 **Precision Diagnostics** — 每个失败点输出精确原因，告别黑盒报错
+<details>
+<summary>🇨🇳 中文</summary>
 
-### v0.9.11 (2026-06-16)
-- 🔗 **Mobile URL Normalizer** — 短链接解析后二次清洗，消除移动端参数
+1. 本软件为**非官方**媒体下载工具，与各内容平台官方无任何关联。
+2. 本软件及源码**仅供学习交流使用，严禁用于商业用途**。
+3. 请尊重内容创作者权益，下载内容请勿用于商业传播。
+4. 使用本软件所产生的一切后果由使用者自行承担。
+5. 本软件不保证功能的完整性和稳定性。
 
-### v0.9.10 (2026-06-16)
-- 🔄 **Architecture Pivot** — 放弃手写解析器，回归 yt-dlp + CookieManager 路线
+</details>
 
-### v0.9.1 – v0.9.9 (2026-06-16)
-- 🧬 edith API → __INITIAL_STATE__ → yt-dlp Cookies 三次架构重构
-- 🎬 B站 Adaptive Quality + 📂 MediaStore System Integration
-- 🩺 Real-Time Diagnostic Panel + 一键复制日志
+<details>
+<summary>🇯🇵 日本語</summary>
 
-### v0.8.0 (2026-06-16)
-- 🚀 Initial Release — Chaquopy + yt-dlp Android 集成
+1. 本ソフトウェアは**非公式**のメディアダウンロードツールであり、各プラットフォーム公式とは一切関係がありません。
+2. 本ソフトウェアおよびソースコードは**学習・交流のみを目的としており、商業利用は厳禁**です。
+3. コンテンツ制作者の権利を尊重し、ダウンロードした内容を商用配布しないでください。
+4. 本ソフトウェアの使用により生じた一切の結果は、使用者自身が責任を負います。
+5. 本ソフトウェアは機能の完全性と安定性を保証するものではありません。
 
-## 📄 License
+</details>
 
-GNU Affero General Public License v3.0
+<details>
+<summary>🇰🇷 한국어</summary>
+
+1. 본 소프트웨어는 **비공식** 미디어 다운로드 도구이며, 각 플랫폼 공식과는 아무런 관련이 없습니다.
+2. 본 소프트웨어 및 소스코드는 **학습 및 교류 목적으로만 사용되며, 상업적 사용은 엄격히 금지**됩니다.
+3. 콘텐츠 제작자의 권리를 존중하며, 다운로드한 내용을 상업적으로 배포하지 마십시오.
+4. 본 소프트웨어 사용으로 발생한 모든 결과는 사용자가 책임집니다.
+5. 본 소프트웨어는 기능의 완전성과 안정성을 보장하지 않습니다.
+
+</details>
+
+<details>
+<summary>🇺🇸 English</summary>
+
+1. This software is an **unofficial** media downloader and is not affiliated with any content platform.
+2. This software and source code are **for learning and communication purposes only. Commercial use is strictly prohibited**.
+3. Please respect content creators' rights; do not redistribute downloaded content commercially.
+4. All consequences arising from the use of this software are borne by the user.
+5. This software does not guarantee the completeness and stability of its features.
+
+</details>
+
+---
 
 <p align="center">
-  <sub>Built with Kotlin · Python · Chaquopy · yt-dlp</sub>
+    <sub>Original Author & Maintainer: <a href="https://github.com/min09577">min09577</a> | License: AGPL v3.0</sub>
 </p>
