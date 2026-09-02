@@ -77,13 +77,14 @@ jobs:
       - uses: softprops/action-gh-release@v2
         if: steps.apk.outputs.apk_path != ''
         with:
-          tag_name: ai.1.0.12
-          name: "全能下载器 ai.1.0.12"
+          tag_name: ai.1.0.13
+          name: "全能下载器 ai.1.0.13"
           body: |
-            ## 全能下载器 · OmniDL ai.1.0.12
+            ## 全能下载器 · OmniDL ai.1.0.13
             **泛在媒体获取引擎** — 智能多平台媒体下载客户端
 
             ### 本版更新
+            - 🐛 修复 B 站拼装视频轨 0 帧：selectTrack 时序修正 + 4MB 大帧缓冲保险
             - 🔊 **B站视频有声** — 系统级 MediaMuxer 无损拼装双轨，无需 ffmpeg：视频(H.264)+音频(AAC) → 有声 MP4
             - 🚀 无 ffmpeg 环境自动切换「双流分下 + 端内拼装」管线
             - 🐛 修复 B 站下载报错（上一版无 ffmpeg 环境误选了双轨合并格式导致中断）

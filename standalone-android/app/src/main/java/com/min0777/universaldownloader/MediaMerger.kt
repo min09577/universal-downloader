@@ -50,18 +50,22 @@ object MediaMerger {
             muxer = MediaMuxer(outPath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
             val vIdx = muxer.addTrack(vFmt)
             val aIdx = muxer.addTrack(aFmt)
+
+            // selectTrack 必须在 addTrack 之后、读取样本之前完成
+            videoExtractor.selectTrack(videoTrack)
+            audioExtractor.selectTrack(audioTrack)
             muxer.start()
 
             val maxBufferSize = maxOf(
                 vFmt.getInteger(android.media.MediaFormat.KEY_MAX_INPUT_SIZE).coerceAtLeast(1 shl 20),
                 if (aFmt.containsKey(android.media.MediaFormat.KEY_MAX_INPUT_SIZE))
-                    aFmt.getInteger(android.media.MediaFormat.KEY_MAX_INPUT_SIZE) else 1 shl 20
+                    aFmt.getInteger(android.media.MediaFormat.KEY_MAX_INPUT_SIZE) else 1 shl 20,
+                4 shl 20  // 1080P 大帧保险: 视频帧可能远超 extractor 上报值
             )
             val buffer = java.nio.ByteBuffer.allocate(maxBufferSize)
             val info = android.media.MediaCodec.BufferInfo()
 
             // 写视频轨
-            videoExtractor.selectTrack(videoTrack)
             while (true) {
                 val size = videoExtractor.readSampleData(buffer, 0)
                 if (size < 0) break
@@ -74,7 +78,6 @@ object MediaMerger {
             }
 
             // 写音频轨
-            audioExtractor.selectTrack(audioTrack)
             while (true) {
                 val size = audioExtractor.readSampleData(buffer, 0)
                 if (size < 0) break
