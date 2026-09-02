@@ -212,13 +212,13 @@ def download_video(url, progress_callback=None):
         # === 平台特化 format ===
         if "bilibili.com" in domain:
             # B站 DASH: 视频/音频分轨。有 ffmpeg → bv+ba 合并出有声视频（实证 1080P+AAC）；
-            # 无 ffmpeg → yt-dlp 合并会 abort，降级 bv（高画质无声，与历史行为一致）
-            h264_first = "bestvideo[ext=mp4][height<=1080]+bestaudio[ext=m4a]/bestvideo+bestaudio/best"
-            original = "bestvideo+bestaudio/best"
-            if _get_cookies("bilibili.com"):
-                opts["format"] = original if has_ff else h264_first
+            # 无 ffmpeg → 纯 bv 单流（高画质无声；bv+ba 无合并器会直接 abort，绝不能选）
+            if has_ff:
+                opts["format"] = "bestvideo+bestaudio/best"
+            elif _get_cookies("bilibili.com"):
+                opts["format"] = "bestvideo/best"          # 登录: 原画
             else:
-                opts["format"] = h264_first if has_ff else "bestvideo[height<=1080]/bestvideo/best"
+                opts["format"] = "bestvideo[height<=1080]/bestvideo/best"  # 匿名: 1080p封顶
             opts["http_headers"] = {"Referer": "https://www.bilibili.com/", "Origin": "https://www.bilibili.com"}
         elif "xiaohongshu.com" in domain or "xhslink.com" in domain or "xhslink.cn" in domain:
             # 小红书直接用 requests 解析 HTML
