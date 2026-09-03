@@ -26,8 +26,8 @@ object MediaMerger {
         // 1) FFmpegKit 无损合并（fMP4 OK）
         val (ok, sessionLog) = runCatching {
             val session = FFmpegKit.execute(
-                "-y -i \"${escape(videoPath)}\" -i \"${escape(audioPath)}\" " +
-                "-c copy -movflags +faststart -map 0:v:0 -map 1:a:0 \"${escape(outPath)}\""
+                "-y -fflags +genpts -i \"${escape(videoPath)}\" -fflags +genpts -i \"${escape(audioPath)}\" " +
+                "-c copy -movflags +faststart -avoid_negative_ts make_zero -map 0:v:0 -map 1:a:0 \"${escape(outPath)}\""
             )
             val all = session.allLogsAsString ?: ""
             val tail = if (all.length > 3000) all.substring(all.length - 3000) else all

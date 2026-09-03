@@ -77,13 +77,14 @@ jobs:
       - uses: softprops/action-gh-release@v2
         if: steps.apk.outputs.apk_path != ''
         with:
-          tag_name: ai.1.0.19
-          name: "全能下载器 ai.1.0.19"
+          tag_name: ai.1.0.20
+          name: "全能下载器 ai.1.0.20"
           body: |
-            ## 全能下载器 · OmniDL ai.1.0.19
+            ## 全能下载器 · OmniDL ai.1.0.20
             **泛在媒体获取引擎** — 智能多平台媒体下载客户端
 
             ### 本版更新
+            - 🖥️ 修复部分 B 站视频绿屏：拼装时 `-fflags +genpts -avoid_negative_ts make_zero` 重建 PTS（B 帧流时间戳丢失场景）
             - 🐛 修复 B 站合并产物未落盘到 Download 目录（私有 cache → MediaStore 补落盘）
             - 🐛 修复 B 站拼装「输出与输入同名」冲突（ffmpeg 拒绝原地编辑）
             - 🔧 拼装日志改为尾部截取（含最终错误信息）
