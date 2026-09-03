@@ -361,7 +361,8 @@ class MainActivity : AppCompatActivity() {
                             if (merged != null) {
                                 addLog("✓ 音视频拼装完成: ${File(merged).name} (${File(merged).length()/1024/1024}MB)")
                                 tempFiles.forEach { f -> runCatching { File(f).delete() } }
-                                merged  // 合并产物直接作为唯一文件走 MediaStore 落盘
+                                // 合并产物是 app 私有 cache 文件 → 必须再走 MediaStore 落盘到 Download/
+                                saveToMediaStore(merged, baseName)
                             } else {
                                 addLog("⚠ 拼装失败, 保留分离的视频文件")
                                 null
