@@ -346,11 +346,17 @@ class MainActivity : AppCompatActivity() {
                     }
 
                     val savedPath = withContext(Dispatchers.IO) {
-                        // B站双轨: needs_remux → MediaMuxer 无损拼装视频+音频（系统API，无需ffmpeg）
+                        // B站双轨: needs_remux → FFmpegKit 无损拼装（fMP4通吃）, MediaMuxer 兜底
                         if (result.optBoolean("needs_remux", false) && tempFiles.size >= 2) {
                             val baseName = filename.substringBeforeLast(" (").ifEmpty { "UD_bili" }
                             val outPath = File(File(tempFiles[0]).parent, "$baseName.mp4").absolutePath
-                            val merged = MediaMerger.remux(tempFiles[0], tempFiles[1], outPath)
+                            val merged = MediaMerger.remux(tempFiles[0], tempFiles[1], outPath) { pct, msg ->
+                                runOnUiThread {
+                                    binding.progressBar.progress = pct
+                                    binding.tvProgress.text = "$pct%"
+                                    binding.tvSpeed.text = msg
+                                }
+                            }
                             if (merged != null) {
                                 addLog("✓ 音视频拼装完成: ${File(merged).name} (${File(merged).length()/1024/1024}MB)")
                                 tempFiles.forEach { f -> runCatching { File(f).delete() } }

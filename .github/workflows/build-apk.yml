@@ -77,13 +77,17 @@ jobs:
       - uses: softprops/action-gh-release@v2
         if: steps.apk.outputs.apk_path != ''
         with:
-          tag_name: ai.1.0.13
-          name: "全能下载器 ai.1.0.13"
+          tag_name: ai.1.0.14
+          name: "全能下载器 ai.1.0.14"
           body: |
-            ## 全能下载器 · OmniDL ai.1.0.13
+            ## 全能下载器 · OmniDL ai.1.0.14
             **泛在媒体获取引擎** — 智能多平台媒体下载客户端
 
             ### 本版更新
+            - 🔊 **B站视频有声** — 内置 FFmpegKit 引擎（FFmpeg 6.0），双轨 `-c copy` 无损拼装，分片格式通吃
+            - 🛟 系统级 MediaMuxer 自动降级兜底
+            - 📊 拼装阶段进度实时上报
+            - ⚠️ APK 体积增加 ~15MB（含 arm64/x86_64 引擎库）
             - 🐛 修复 B 站拼装视频轨 0 帧：selectTrack 时序修正 + 4MB 大帧缓冲保险
             - 🔊 **B站视频有声** — 系统级 MediaMuxer 无损拼装双轨，无需 ffmpeg：视频(H.264)+音频(AAC) → 有声 MP4
             - 🚀 无 ffmpeg 环境自动切换「双流分下 + 端内拼装」管线

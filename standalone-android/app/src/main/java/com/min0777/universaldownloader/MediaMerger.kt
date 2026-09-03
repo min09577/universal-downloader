@@ -2,23 +2,52 @@ package com.min0777.universaldownloader
 
 import android.media.MediaExtractor
 import android.media.MediaMuxer
+import com.arthenica.ffmpegkit.FFmpegKit
+import com.arthenica.ffmpegkit.FFmpegKitConfig
+import com.arthenica.ffmpegkit.ReturnCode
 import java.io.File
 
 /**
- * 无损 MP4 双轨拼装器（系统 MediaMuxer，无需 ffmpeg）
+ * B 站双轨拼装器
  *
- * B 站 DASH 的视频流(H.264/AVC in mp4)与音频流(AAC in m4a)都是 MP4 系容器，
- * MediaMuxer 可直接 remux 到同一个 MP4，不转码、无损、速度快（IO 瓶颈级）。
+ * 主路径: FFmpegKit(-c copy) —— 无损 remux, fMP4/B站分片格式通吃
+ * 降级:  MediaMuxer     —— 系统API, 只支持普通MP4; 失败时保底
+ *
+ * @param onProgress (pct 0-100, 文本) 合并阶段的进度（按输出文件估算不可行, 用时间脉冲上报）
  */
 object MediaMerger {
 
     /**
-     * @param videoPath 视频流文件 (mp4, H.264/HEVC)
-     * @param audioPath 音频流文件 (m4a, AAC)
-     * @param outPath   输出 MP4 路径
-     * @return 成功返回输出文件路径，失败返回 null
+     * @return 成功返回输出文件路径, 失败 null
      */
-    fun remux(videoPath: String, audioPath: String, outPath: String): String? {
+    fun remux(videoPath: String, audioPath: String, outPath: String,
+              onProgress: ((Int, String) -> Unit)? = null): String? {
+        onProgress?.invoke(5, "拼装中...")
+        // 1) FFmpegKit 无损合并（fMP4 OK）
+        val rc = runCatching {
+            val session = FFmpegKit.execute(
+                "-y -i \"${escape(videoPath)}\" -i \"${escape(audioPath)}\" " +
+                "-c copy -movflags +faststart -map 0:v:0 -map 1:a:0 \"${escape(outPath)}\""
+            )
+            ReturnCode.isSuccess(session.returnCode)
+        }.getOrDefault(false)
+        if (rc && File(outPath).length() > 0) {
+            onProgress?.invoke(100, "完成")
+            return outPath
+        }
+        onProgress?.invoke(50, "尝试系统拼装...")
+        // 2) MediaMuxer 降级
+        val fallback = remuxViaMediaMuxer(videoPath, audioPath, outPath)
+        if (fallback != null) {
+            onProgress?.invoke(100, "完成")
+            return fallback
+        }
+        return null
+    }
+
+    private fun escape(p: String) = p.replace("\\", "\\\\").replace("\"", "\\\"")
+
+    private fun remuxViaMediaMuxer(videoPath: String, audioPath: String, outPath: String): String? {
         val videoExtractor = MediaExtractor()
         val audioExtractor = MediaExtractor()
         var muxer: MediaMuxer? = null
@@ -28,18 +57,14 @@ object MediaMerger {
 
             var videoTrack = -1
             for (i in 0 until videoExtractor.trackCount) {
-                val fmt = videoExtractor.getTrackFormat(i)
-                if (fmt.getString(MediaFormat_KEY_MIME)?.startsWith("video/") == true) {
-                    videoTrack = i
-                    break
+                if (videoExtractor.getTrackFormat(i).getString("mime")?.startsWith("video/") == true) {
+                    videoTrack = i; break
                 }
             }
             var audioTrack = -1
             for (i in 0 until audioExtractor.trackCount) {
-                val fmt = audioExtractor.getTrackFormat(i)
-                if (fmt.getString(MediaFormat_KEY_MIME)?.startsWith("audio/") == true) {
-                    audioTrack = i
-                    break
+                if (audioExtractor.getTrackFormat(i).getString("mime")?.startsWith("audio/") == true) {
+                    audioTrack = i; break
                 }
             }
             if (videoTrack < 0 || audioTrack < 0) return null
@@ -50,8 +75,6 @@ object MediaMerger {
             muxer = MediaMuxer(outPath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
             val vIdx = muxer.addTrack(vFmt)
             val aIdx = muxer.addTrack(aFmt)
-
-            // selectTrack 必须在 addTrack 之后、读取样本之前完成
             videoExtractor.selectTrack(videoTrack)
             audioExtractor.selectTrack(audioTrack)
             muxer.start()
@@ -60,35 +83,29 @@ object MediaMerger {
                 vFmt.getInteger(android.media.MediaFormat.KEY_MAX_INPUT_SIZE).coerceAtLeast(1 shl 20),
                 if (aFmt.containsKey(android.media.MediaFormat.KEY_MAX_INPUT_SIZE))
                     aFmt.getInteger(android.media.MediaFormat.KEY_MAX_INPUT_SIZE) else 1 shl 20,
-                4 shl 20  // 1080P 大帧保险: 视频帧可能远超 extractor 上报值
+                4 shl 20
             )
             val buffer = java.nio.ByteBuffer.allocate(maxBufferSize)
             val info = android.media.MediaCodec.BufferInfo()
 
-            // 写视频轨
             while (true) {
                 val size = videoExtractor.readSampleData(buffer, 0)
                 if (size < 0) break
-                info.offset = 0
-                info.size = size
+                info.offset = 0; info.size = size
                 info.presentationTimeUs = videoExtractor.sampleTime
                 info.flags = videoExtractor.sampleFlags
                 muxer.writeSampleData(vIdx, buffer, info)
                 videoExtractor.advance()
             }
-
-            // 写音频轨
             while (true) {
                 val size = audioExtractor.readSampleData(buffer, 0)
                 if (size < 0) break
-                info.offset = 0
-                info.size = size
+                info.offset = 0; info.size = size
                 info.presentationTimeUs = audioExtractor.sampleTime
                 info.flags = audioExtractor.sampleFlags
                 muxer.writeSampleData(aIdx, buffer, info)
                 audioExtractor.advance()
             }
-
             muxer.stop()
             return outPath
         } catch (e: Exception) {
@@ -100,6 +117,4 @@ object MediaMerger {
             try { muxer?.release() } catch (_: Exception) {}
         }
     }
-
-    private const val MediaFormat_KEY_MIME = "mime"
 }
