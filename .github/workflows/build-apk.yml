@@ -77,13 +77,14 @@ jobs:
       - uses: softprops/action-gh-release@v2
         if: steps.apk.outputs.apk_path != ''
         with:
-          tag_name: ai.1.0.15
-          name: "全能下载器 ai.1.0.15"
+          tag_name: ai.1.0.16
+          name: "全能下载器 ai.1.0.16"
           body: |
-            ## 全能下载器 · OmniDL ai.1.0.15
+            ## 全能下载器 · OmniDL ai.1.0.16
             **泛在媒体获取引擎** — 智能多平台媒体下载客户端
 
             ### 本版更新
+            - 🔧 补齐 smart-exception 运行时依赖（FFmpegKit 异常链缺失导致引擎无法启动）
             - 🔧 拼装链路诊断增强（OmniDL-Merge 日志）
             - 🔊 **B站视频有声** — 内置 FFmpegKit 引擎（FFmpeg 6.0），双轨 `-c copy` 无损拼装，分片格式通吃
             - 🛟 系统级 MediaMuxer 自动降级兜底
