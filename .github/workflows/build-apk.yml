@@ -77,13 +77,14 @@ jobs:
       - uses: softprops/action-gh-release@v2
         if: steps.apk.outputs.apk_path != ''
         with:
-          tag_name: ai.1.0.17
-          name: "全能下载器 ai.1.0.17"
+          tag_name: ai.1.0.18
+          name: "全能下载器 ai.1.0.18"
           body: |
-            ## 全能下载器 · OmniDL ai.1.0.17
+            ## 全能下载器 · OmniDL ai.1.0.18
             **泛在媒体获取引擎** — 智能多平台媒体下载客户端
 
             ### 本版更新
+            - 🐛 修复 B 站拼装「输出与输入同名」冲突（ffmpeg 拒绝原地编辑）
             - 🔧 拼装日志改为尾部截取（含最终错误信息）
             - 🔧 补齐 smart-exception 运行时依赖（FFmpegKit 异常链缺失导致引擎无法启动）
             - 🔧 拼装链路诊断增强（OmniDL-Merge 日志）

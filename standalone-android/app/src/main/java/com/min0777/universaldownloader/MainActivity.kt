@@ -349,7 +349,8 @@ class MainActivity : AppCompatActivity() {
                         // B站双轨: needs_remux → FFmpegKit 无损拼装（fMP4通吃）, MediaMuxer 兜底
                         if (result.optBoolean("needs_remux", false) && tempFiles.size >= 2) {
                             val baseName = filename.substringBeforeLast(" (").ifEmpty { "UD_bili" }
-                            val outPath = File(File(tempFiles[0]).parent, "$baseName.mp4").absolutePath
+                            // 输出名必须与输入不同名(ffmpeg不能原地编辑): 加 _merged 后缀
+                            val outPath = File(File(tempFiles[0]).parent, "${baseName}_merged.mp4").absolutePath
                             val merged = MediaMerger.remux(tempFiles[0], tempFiles[1], outPath) { pct, msg ->
                                 runOnUiThread {
                                     binding.progressBar.progress = pct
