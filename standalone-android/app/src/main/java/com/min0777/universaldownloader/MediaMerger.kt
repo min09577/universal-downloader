@@ -24,14 +24,18 @@ object MediaMerger {
               onProgress: ((Int, String) -> Unit)? = null): String? {
         onProgress?.invoke(5, "拼装中...")
         // 1) FFmpegKit 无损合并（fMP4 OK）
-        val rc = runCatching {
+        val (ok, sessionLog) = runCatching {
             val session = FFmpegKit.execute(
                 "-y -i \"${escape(videoPath)}\" -i \"${escape(audioPath)}\" " +
                 "-c copy -movflags +faststart -map 0:v:0 -map 1:a:0 \"${escape(outPath)}\""
             )
-            ReturnCode.isSuccess(session.returnCode)
-        }.getOrDefault(false)
-        if (rc && File(outPath).length() > 0) {
+            val logs = session.allLogsAsString?.take(1500) ?: ""
+            Pair(ReturnCode.isSuccess(session.returnCode), logs)
+        }.getOrElse { e ->
+            Pair(false, "EXC: ${e.message}")
+        }
+        android.util.Log.d("OmniDL-Merge", "ffmpeg rc=$ok log=$sessionLog")
+        if (ok && File(outPath).length() > 0) {
             onProgress?.invoke(100, "完成")
             return outPath
         }
