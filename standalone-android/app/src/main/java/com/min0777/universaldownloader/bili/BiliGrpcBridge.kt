@@ -6,8 +6,12 @@ import io.grpc.StatusRuntimeException
 
 /**
  * Python downloader.py 与 Kotlin gRPC 栈之间的桥。
- * accessKey 由 Python 侧从 WebView cookie 提取后传入；
  * 拉流结果以 Gson JSON 返回，字段见 get4kStreams。
+ *
+ * TODO(BROKEN): 当前 gRPC 路径休眠，勿启用——Python 侧已改走 web playurl（SESSDATA Cookie）。
+ * 本类签名中的 accessKey 参数曾误用 WebView SESSDATA 填充；按 chairman 拍板方案，
+ * metadata.proto 的 access_key 应留空，鉴权改走 authorization:ident Cookie 头，
+ * 且需真实 App access_key 或抓包确认后才能启用。启用前必须重做鉴权，勿直接回退 downloader.py。
  */
 object BiliGrpcBridge {
 
