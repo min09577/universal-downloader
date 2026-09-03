@@ -29,8 +29,9 @@ object MediaMerger {
                 "-y -i \"${escape(videoPath)}\" -i \"${escape(audioPath)}\" " +
                 "-c copy -movflags +faststart -map 0:v:0 -map 1:a:0 \"${escape(outPath)}\""
             )
-            val logs = session.allLogsAsString?.take(1500) ?: ""
-            Pair(ReturnCode.isSuccess(session.returnCode), logs)
+            val all = session.allLogsAsString ?: ""
+            val tail = if (all.length > 3000) all.substring(all.length - 3000) else all
+            Pair(ReturnCode.isSuccess(session.returnCode), "RC=${session.returnCode} TAIL=$tail")
         }.getOrElse { e ->
             Pair(false, "EXC: ${e.message}")
         }
