@@ -33,6 +33,177 @@ def _get_cookies(domain):
         return ""
 
 
+def _bili_cookie_value(name):
+    """从 WebView cookie 存储取指定 B站 cookie 值"""
+    c = _get_cookies("bilibili.com")
+    if not c:
+        return ""
+    for item in c.split(';'):
+        item = item.strip()
+        if item.startswith(name + "="):
+            return item.partition('=')[2].strip()
+    return ""
+
+
+def _bili_extract_ids(url):
+    """BV/av 号 → (aid, cid, title)。走 B站公开 view API，多 P 取第一 P。"""
+    try:
+        import requests as req
+        bv = re.search(r'BV[a-zA-Z0-9]+', url)
+        if bv:
+            api = f"https://api.bilibili.com/x/web-interface/view?bvid={bv.group(0)}"
+        else:
+            av = re.search(r'av(\d+)', url, re.IGNORECASE)
+            if not av:
+                return None
+            api = f"https://api.bilibili.com/x/web-interface/view?aid={av.group(1)}"
+        resp = req.get(api, headers={
+            "User-Agent": "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36",
+            "Referer": "https://www.bilibili.com/",
+        }, timeout=15)
+        data = resp.json()
+        if data.get("code") != 0:
+            return None
+        d = data.get("data") or {}
+        aid = d.get("aid")
+        pages = d.get("pages") or []
+        cid = pages[0].get("cid") if pages else None
+        title = str(d.get("title") or "bilibili")[:60]
+        if aid and cid:
+            return int(aid), int(cid), title
+    except Exception:
+        pass
+    return None
+
+
+def _bili_ytdlp_max_height(url):
+    """yt-dlp 解析出的最高视频流高度；解析失败返回 0"""
+    try:
+        from yt_dlp import YoutubeDL
+        opts = _ytdlp_base_opts()
+        cf = _cookies_file("www.bilibili.com")
+        if cf:
+            opts["cookiefile"] = cf
+        opts["http_headers"] = {"Referer": "https://www.bilibili.com/", "Origin": "https://www.bilibili.com"}
+        with YoutubeDL(opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+        heights = [f.get("height") or 0 for f in (info.get("formats") or [])]
+        return max(heights) if heights else 0
+    except Exception:
+        return 0
+
+
+def _bili_4k(url, dl_dir, progress_callback=None):
+    """
+    B站 web playurl 4K 路径（bilibili + 目标 qn>=120 + yt-dlp 无高画质流时触发）:
+    web playurl API（SESSDATA cookie + qn=120 + fourk=1 + fnval=16）拿 DASH 双流直链
+    → requests 带 Referer 下载 → needs_remux 交现有 FFmpegKit 管线。
+    SESSDATA 即 web 端合法凭证（4K 需 VIP 账号）；无登录态/拿不到 4K 流一律返回 None，
+    调用方降级回 yt-dlp 旧路径。
+    """
+    try:
+        import requests as req
+
+        ids = _bili_extract_ids(url)
+        if not ids:
+            return None
+        aid, cid, title = ids
+
+        sessdata = _bili_cookie_value("SESSDATA")
+        if not sessdata:
+            return None  # 无登录态，web playurl 4K 必失败，尽早降级
+        buvid = _bili_cookie_value("buvid3")
+
+        api = "https://api.bilibili.com/x/player/playurl"
+        params = {"avid": aid, "cid": cid, "qn": 120, "fnval": 16, "fourk": 1}
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+            "Referer": "https://www.bilibili.com/",
+            "Origin": "https://www.bilibili.com",
+        }
+        cookies = {"SESSDATA": sessdata}
+        if buvid:
+            cookies["buvid3"] = buvid
+        resp = req.get(api, params=params, headers=headers, cookies=cookies, timeout=20)
+        resp.raise_for_status()
+        data = resp.json()
+        if data.get("code") != 0:
+            return None
+        d = data.get("data") or {}
+        dash = d.get("dash") or {}
+        videos = dash.get("video") or []
+        audios = dash.get("audio") or []
+        # 仅接受 qn=120 的视频流（API 在无 4K 权限/片源时会静默降档到 1080，
+        # 此时 dash.video 里没有 id==120，直接降级交 yt-dlp，绝不把低清流标成 4K）
+        v4k = [v for v in videos if int(v.get("id") or 0) == 120]
+        if not v4k:
+            return None
+
+        def _bw(v):
+            try:
+                return int(v.get("bandwidth") or 0)
+            except Exception:
+                return 0
+
+        v = max(v4k, key=_bw)
+        v_url = v.get("baseUrl") or v.get("base_url") or ""
+        if audios:
+            a = max(audios, key=_bw)
+            a_url = a.get("baseUrl") or a.get("base_url") or ""
+        else:
+            a_url = ""
+        if not v_url or not a_url:
+            return None
+
+        safe_title = re.sub(r'[\\/*?:"<>|]', '', title) or f"bili_{aid}"
+        dl_headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+            "Referer": "https://www.bilibili.com/",
+            "Origin": "https://www.bilibili.com",
+        }
+
+        def _dl(stream_url, filepath, base_pct, span_pct):
+            resp = req.get(stream_url, headers=dl_headers, stream=True, timeout=30)
+            resp.raise_for_status()
+            total = int(resp.headers.get("content-length", 0))
+            done = 0
+            with open(filepath, "wb") as f:
+                for chunk in resp.iter_content(1 << 16):
+                    f.write(chunk)
+                    done += len(chunk)
+                    if progress_callback and total:
+                        pct = base_pct + int(done * span_pct / total)
+                        try:
+                            progress_callback(min(pct, 99), f"{done/1048576:.1f}MB")
+                        except Exception:
+                            pass
+
+        v_file = os.path.join(dl_dir, f"UD_{safe_title}_video.m4s")
+        a_file = os.path.join(dl_dir, f"UD_{safe_title}_audio.m4s")
+        _dl(v_url, v_file, 0, 70)
+        _dl(a_url, a_file, 70, 29)
+        if progress_callback:
+            try:
+                progress_callback(100, "处理中...")
+            except Exception:
+                pass
+
+        v_size = os.path.getsize(v_file)
+        a_size = os.path.getsize(a_file)
+        if v_size < 100 * 1024:
+            return None  # 流过小，疑似风控/无效响应
+        total = v_size + a_size
+        return _safe_json({
+            "success": True, "needs_remux": True,
+            "filename": safe_title,
+            "path": v_file, "files": [v_file, a_file],
+            "size_mb": round(total / (1024 * 1024), 2),
+            "note": f"B站 4K 流(web playurl qn=120)",
+        })
+    except Exception:
+        return None  # 任何异常 → 降级回 yt-dlp 旧路径
+
+
 def _cookies_file(domain):
     """创建临时 cookies 文件"""
     c = _get_cookies(domain)
@@ -220,6 +391,12 @@ def download_video(url, progress_callback=None):
 
         # === 平台特化 format ===
         if "bilibili.com" in domain:
+            # gRPC 4K 路径: yt-dlp 无高画质流(>=2160)或解析失败时尝试（失败自动降级）
+            max_h = _bili_ytdlp_max_height(url)
+            if max_h < 2160:
+                grpc_result = _bili_4k(url, dl_dir, progress_callback)
+                if grpc_result:
+                    return grpc_result
             # B站 DASH: 视频/音频分轨
             if has_ff:
                 # ffmpeg 可用 → 单次下载并合并出有声视频（实证 1080P+AAC）

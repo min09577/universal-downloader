@@ -13,6 +13,11 @@ class MyApp : Application() {
         lateinit var instance: MyApp
             private set
 
+        /** gRPC 桥用：安全取 Application 实例（未初始化返回 null） */
+        @JvmStatic
+        fun instanceOrNull(): MyApp? =
+            if (::instance.isInitialized) instance else null
+
         /** 安全获取 cookies——在主线程执行 */
         @JvmStatic
         fun getCookiesSafe(domain: String): String {
