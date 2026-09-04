@@ -22,13 +22,21 @@ object BiliGrpcBridge {
         aid: Long,
         cid: Long,
         qn: Int,
-        accessKey: String,
+        sessdata: String,
         buvid: String,
     ): String {
         return try {
             val app = com.min0777.universaldownloader.MyApp.instanceOrNull()
                 ?: return errorJson("app 未初始化")
-            BiliGrpcClient(context = app, accessKey = accessKey).use { client ->
+            // 休眠路径：SESSDATA/buvid3 以 cookie 头携带（metadata.access_key 留空）
+            val cookieHeader = buildString {
+                if (sessdata.isNotBlank()) append("SESSDATA=").append(sessdata)
+                if (buvid.isNotBlank()) {
+                    if (isNotEmpty()) append("; ")
+                    append("buvid3=").append(buvid)
+                }
+            }
+            BiliGrpcClient(context = app, cookieHeader = cookieHeader).use { client ->
                 val vod = kotlinx.coroutines.runBlocking {
                     client.playViewUnite(aid = aid, cid = cid, qn = qn)
                 }
@@ -58,4 +66,83 @@ object BiliGrpcBridge {
 
     private fun errorJson(msg: String): String =
         Gson().toJson(linkedMapOf("success" to false, "error" to msg))
+
+    /**
+     * gRPC 试看机制真机实验：以匿名身份（access_key 留空 + identify_v1 + cookie）
+     * 请求 qn=120/fnval=4048/download=0，回传 quality、每条 stream 的
+     * quality/need_vip/base_url 有无、qn_trial_info 全文，验证漫游 X 机制能否复刻。
+     */
+    @JvmStatic
+    fun testTrial(aid: Long, cid: Long): String {
+        val tag = "BiliGrpcTest"
+        fun log(msg: String) { android.util.Log.i(tag, msg) }
+        return try {
+            val app = com.min0777.universaldownloader.MyApp.instanceOrNull()
+                ?: return errorJson("app 未初始化").also { log(it) }
+            val buvid = BiliMetadataFactory.buvid(app)
+            val cookieHeader = "buvid3=$buvid"
+            log("testTrial begin aid=$aid cid=$cid buvid=$buvid")
+            BiliGrpcClient(context = app, cookieHeader = cookieHeader).use { client ->
+                val reply = kotlinx.coroutines.runBlocking {
+                    // 直接走 stub 层拿完整 Reply（含 qn_trial_info），不复用 playViewUnite（只回 vod_info）
+                    val req = bilibili.app.playerunite.v1.PlayViewUniteReq.newBuilder()
+                        .setVod(
+                            bilibili.playershared.VideoVod.newBuilder()
+                                .setAid(aid)
+                                .setCid(cid)
+                                .setQn(120L)
+                                .setFnval(4048)
+                                .setDownload(0)
+                                .setForceHost(2)
+                                .setFourk(true)
+                                .build()
+                        )
+                        .setSpmid("0")
+                        .setFromSpmid("0")
+                        .build()
+                    val stub = bilibili.app.playerunite.v1.PlayerGrpcKt.PlayerCoroutineStub(client.rawChannel)
+                        .withInterceptors(BiliMetadataInterceptor(app, cookieHeader))
+                    stub.playViewUnite(req)
+                }
+                val vod = reply.vodInfo
+                val streams = vod.streamListList.map { s ->
+                    linkedMapOf(
+                        "quality" to s.streamInfo.quality.toInt(),
+                        "need_vip" to s.streamInfo.needVip,
+                        "need_login" to s.streamInfo.needLogin,
+                        "err_code" to s.streamInfo.errCode.toInt(),
+                        "has_base_url" to (s.hasDashVideo() && s.dashVideo.baseUrl.isNotBlank()),
+                        "base_url_len" to (if (s.hasDashVideo()) s.dashVideo.baseUrl.length else 0),
+                        "format" to s.streamInfo.format,
+                        "new_description" to s.streamInfo.newDescription,
+                    )
+                }
+                val trial = reply.qnTrialInfo
+                val payload: Map<String, Any> = linkedMapOf(
+                    "success" to true,
+                    "vod_quality" to vod.quality.toInt(),
+                    "stream_count" to streams.size,
+                    "streams" to streams,
+                    "qn120_has_url" to streams.any { it["quality"] == 120 && it["has_base_url"] == true },
+                    "qn_trial_info" to linkedMapOf(
+                        "trial_able" to trial.trialAble,
+                        "remaining_times" to trial.remainingTimes,
+                        "start" to trial.start,
+                        "time_length" to trial.timeLength,
+                        "has_start_toast" to trial.hasStartToast(),
+                        "has_end_toast" to trial.hasEndToast(),
+                    ),
+                )
+                val json = gson.toJson(payload)
+                log("testTrial result: $json")
+                json
+            }
+        } catch (e: StatusRuntimeException) {
+            log("testTrial gRPC error: ${e.status.code} ${e.status.description}")
+            errorJson("gRPC ${e.status.code}: ${e.status.description ?: ""}")
+        } catch (e: Exception) {
+            log("testTrial error: ${e.javaClass.simpleName}: ${e.message}")
+            errorJson("gRPC 拉流失败: ${e.message ?: e.javaClass.simpleName}")
+        }
+    }
 }

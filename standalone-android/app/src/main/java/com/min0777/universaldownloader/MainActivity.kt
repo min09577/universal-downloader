@@ -49,8 +49,30 @@ class MainActivity : AppCompatActivity() {
         // 动态版本号（ai.x.y.z 自带语义，不加 v 前缀）
         val verName = packageManager.getPackageInfo(packageName, 0).versionName ?: ""
         binding.tvVersion.text = verName
-        // 作者徽章：点击直达仓库
-        binding.tvAuthor.setOnClickListener { AboutBox.open(this, AboutBox.REPO_URL) }
+        // 作者徽章：点击直达仓库；2 秒内连点 5 次触发 gRPC 试看实验（隐藏调试入口）
+        // 单击的浏览器跳转延迟 2.5s 执行：凑满 5 击则取消，保证连击窗口不被打断
+        var authorTapTimes = mutableListOf<Long>()
+        val openRepoRunnable = Runnable { AboutBox.open(this, AboutBox.REPO_URL) }
+        binding.tvAuthor.setOnClickListener {
+            val now = System.currentTimeMillis()
+            authorTapTimes = authorTapTimes.filter { now - it < 2000 }.toMutableList()
+            authorTapTimes.add(now)
+            if (authorTapTimes.size >= 5) {
+                authorTapTimes.clear()
+                binding.tvAuthor.removeCallbacks(openRepoRunnable)
+                addLog("[BiliGrpcTest] 触发 gRPC 试看实验...")
+                Thread {
+                    val json = com.min0777.universaldownloader.bili.BiliGrpcBridge.testTrial(883362563L, 196018899L)
+                    addLog("[BiliGrpcTest] $json")
+                }.start()
+            } else {
+                binding.tvAuthor.removeCallbacks(openRepoRunnable)
+                binding.tvAuthor.postDelayed(openRepoRunnable, 2500)
+                if (authorTapTimes.size >= 3) {
+                    Toast.makeText(this, "再点 ${5 - authorTapTimes.size} 次触发调试实验", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
         // ⚙ 关于入口（设置式）：仓库地址 / 检查更新 / 作者信息
         binding.btnSettings.setOnClickListener { AboutBox.show(this, isStartup = false) }
         addLog("=== 全能下载器 ${binding.tvVersion.text} 启动 ===")
