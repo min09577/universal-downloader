@@ -93,24 +93,70 @@ def _bili_ytdlp_max_height(url):
         return 0
 
 
+def _bili_log(msg):
+    """降级可观测性：print 进 stdout，Chaquopy 会桥接到 logcat（tag: python.stdout）"""
+    try:
+        print(f"[bili4k] {msg}", flush=True)
+    except Exception:
+        pass
+
+
+def _requests_download_retry(url, filepath, headers, tries=3, progress_cb=None):
+    """requests 流式下载，带重试（设备 SSL EOF 属瞬态网络抖动；PC 同 SESSDATA 已证流可用）"""
+    import requests as req
+    import time
+    last_err = None
+    for attempt in range(1, tries + 1):
+        try:
+            resp = req.get(url, headers=headers, stream=True, timeout=30)
+            resp.raise_for_status()
+            total = int(resp.headers.get("content-length", 0))
+            done = 0
+            with open(filepath, "wb") as f:
+                for chunk in resp.iter_content(1 << 16):
+                    f.write(chunk)
+                    done += len(chunk)
+                    if progress_cb and total:
+                        try:
+                            progress_cb(done, total)
+                        except Exception:
+                            pass
+            return True
+        except Exception as e:
+            last_err = e
+            _bili_log(f"download attempt {attempt}/{tries} failed: {type(e).__name__}: {str(e)[:120]}")
+            try:
+                if os.path.exists(filepath):
+                    os.remove(filepath)  # 清掉半截文件再重试
+            except Exception:
+                pass
+            if attempt < tries:
+                time.sleep(2 * attempt)
+    _bili_log(f"download gave up after {tries} tries: {type(last_err).__name__}: {str(last_err)[:160]}")
+    return False
+
+
 def _bili_4k(url, dl_dir, progress_callback=None):
     """
     B站 web playurl 4K 路径（bilibili + 目标 qn>=120 + yt-dlp 无高画质流时触发）:
     web playurl API（SESSDATA cookie + qn=120 + fourk=1 + fnval=16）拿 DASH 双流直链
-    → requests 带 Referer 下载 → needs_remux 交现有 FFmpegKit 管线。
+    → requests 带 Referer 下载（含重试） → needs_remux 交现有 FFmpegKit 管线。
     SESSDATA 即 web 端合法凭证（4K 需 VIP 账号）；无登录态/拿不到 4K 流一律返回 None，
-    调用方降级回 yt-dlp 旧路径。
+    调用方降级回 yt-dlp 旧路径。所有降级分支均打日志（logcat 可见）。
     """
+    _bili_log(f"enter: url={url[:80]}")
     try:
         import requests as req
 
         ids = _bili_extract_ids(url)
         if not ids:
+            _bili_log("abort: extract aid/cid failed (view API)")
             return None
         aid, cid, title = ids
 
         sessdata = _bili_cookie_value("SESSDATA")
         if not sessdata:
+            _bili_log("abort: no SESSDATA (not logged in)")
             return None  # 无登录态，web playurl 4K 必失败，尽早降级
         buvid = _bili_cookie_value("buvid3")
 
@@ -128,6 +174,7 @@ def _bili_4k(url, dl_dir, progress_callback=None):
         resp.raise_for_status()
         data = resp.json()
         if data.get("code") != 0:
+            _bili_log(f"abort: playurl api code={data.get('code')} msg={str(data.get('message'))[:80]}")
             return None
         d = data.get("data") or {}
         dash = d.get("dash") or {}
@@ -137,6 +184,8 @@ def _bili_4k(url, dl_dir, progress_callback=None):
         # 此时 dash.video 里没有 id==120，直接降级交 yt-dlp，绝不把低清流标成 4K）
         v4k = [v for v in videos if int(v.get("id") or 0) == 120]
         if not v4k:
+            ids_avail = sorted({int(v.get("id") or 0) for v in videos})
+            _bili_log(f"abort: no qn=120 stream, available={ids_avail}")
             return None
 
         def _bw(v):
@@ -153,6 +202,7 @@ def _bili_4k(url, dl_dir, progress_callback=None):
         else:
             a_url = ""
         if not v_url or not a_url:
+            _bili_log(f"abort: empty stream url (v={bool(v_url)} a={bool(a_url)})")
             return None
 
         safe_title = re.sub(r'[\\/*?:"<>|]', '', title) or f"bili_{aid}"
@@ -162,26 +212,25 @@ def _bili_4k(url, dl_dir, progress_callback=None):
             "Origin": "https://www.bilibili.com",
         }
 
-        def _dl(stream_url, filepath, base_pct, span_pct):
-            resp = req.get(stream_url, headers=dl_headers, stream=True, timeout=30)
-            resp.raise_for_status()
-            total = int(resp.headers.get("content-length", 0))
-            done = 0
-            with open(filepath, "wb") as f:
-                for chunk in resp.iter_content(1 << 16):
-                    f.write(chunk)
-                    done += len(chunk)
-                    if progress_callback and total:
-                        pct = base_pct + int(done * span_pct / total)
-                        try:
-                            progress_callback(min(pct, 99), f"{done/1048576:.1f}MB")
-                        except Exception:
-                            pass
-
         v_file = os.path.join(dl_dir, f"UD_{safe_title}_video.m4s")
         a_file = os.path.join(dl_dir, f"UD_{safe_title}_audio.m4s")
-        _dl(v_url, v_file, 0, 70)
-        _dl(a_url, a_file, 70, 29)
+
+        def _report(done, total, base_pct, span_pct):
+            if progress_callback and total:
+                pct = base_pct + int(done * span_pct / total)
+                try:
+                    progress_callback(min(pct, 99), f"{done/1048576:.1f}MB")
+                except Exception:
+                    pass
+
+        _bili_log("downloading video stream (4K)...")
+        if not _requests_download_retry(v_url, v_file, dl_headers, tries=3,
+                                        progress_cb=lambda dn, tt: _report(dn, tt, 0, 70)):
+            return None  # 视频流重试耗尽 → 降级
+        _bili_log("downloading audio stream...")
+        if not _requests_download_retry(a_url, a_file, dl_headers, tries=3,
+                                        progress_cb=lambda dn, tt: _report(dn, tt, 70, 29)):
+            return None  # 音频流重试耗尽 → 降级
         if progress_callback:
             try:
                 progress_callback(100, "处理中...")
@@ -191,8 +240,10 @@ def _bili_4k(url, dl_dir, progress_callback=None):
         v_size = os.path.getsize(v_file)
         a_size = os.path.getsize(a_file)
         if v_size < 100 * 1024:
+            _bili_log(f"abort: video stream too small ({v_size}B), suspected risk-control")
             return None  # 流过小，疑似风控/无效响应
         total = v_size + a_size
+        _bili_log(f"ok: v={v_size/1048576:.1f}MB a={a_size/1048576:.1f}MB")
         return _safe_json({
             "success": True, "needs_remux": True,
             "filename": safe_title,
@@ -200,7 +251,8 @@ def _bili_4k(url, dl_dir, progress_callback=None):
             "size_mb": round(total / (1024 * 1024), 2),
             "note": f"B站 4K 流(web playurl qn=120)",
         })
-    except Exception:
+    except Exception as e:
+        _bili_log(f"abort: unexpected {type(e).__name__}: {str(e)[:200]}")
         return None  # 任何异常 → 降级回 yt-dlp 旧路径
 
 
@@ -361,6 +413,26 @@ def _has_ffmpeg():
     return False
 
 
+def _pick_newest_by_template(dl_dir, template_prefix, exts, min_mtime=0):
+    """
+    按 outtmpl 模板前缀匹配产物文件（UD_<title>.<ext>），mtime 需晚于 min_mtime 兜底，
+    消除目录内历史残留文件被误认成本次下载的问题。
+    """
+    cands = []
+    for name in os.listdir(dl_dir):
+        if not name.startswith(template_prefix):
+            continue
+        ext = os.path.splitext(name)[1].lower().strip(".")
+        if ext not in exts:
+            continue
+        path = os.path.join(dl_dir, name)
+        if os.path.isfile(path) and os.path.getmtime(path) >= min_mtime:
+            cands.append(path)
+    if not cands:
+        return None
+    return max(cands, key=os.path.getmtime)
+
+
 def _pick_newest(names, dl_dir, exts):
     """从文件名集合中选出最新的指定扩展名文件（返回绝对路径或 None）"""
     cands = [os.path.join(dl_dir, n) for n in names
@@ -415,19 +487,38 @@ def download_video(url, progress_callback=None):
             cf = _cookies_file(domain)
             if cf: opts["cookiefile"] = cf
 
-            before = set(os.listdir(dl_dir))
+            # 产物检测：按 outtmpl 模板（UD_ 前缀）+ mtime 晚于下载起点匹配，
+            # 避免目录内历史残留文件被 listdir 差集误判为本次产物（或反之误报失败）
+            import time as _time
+            ts_v = _time.time()
             opts_v = dict(opts); opts_v["format"] = h264_v
             with YoutubeDL(opts_v) as ydl:
                 ydl.extract_info(url, download=True)
-            after_v = set(os.listdir(dl_dir)) - before
-            v_file = _pick_newest(after_v, dl_dir, ("mp4", "mkv", "webm"))
+            v_file = _pick_newest_by_template(dl_dir, "UD_", ("mp4", "mkv", "webm"), min_mtime=ts_v)
+            if not v_file:
+                # mtime 兜底：严格时间窗失灵（文件系统粒度）时回退为只看模板前缀
+                v_file = _pick_newest_by_template(dl_dir, "UD_", ("mp4", "mkv", "webm"))
 
-            before = set(os.listdir(dl_dir))
+            ts_a = _time.time()
             opts_a = dict(opts); opts_a["format"] = a_only
             with YoutubeDL(opts_a) as ydl:
                 ydl.extract_info(url, download=True)
-            after_a = set(os.listdir(dl_dir)) - before - after_v
-            a_file = _pick_newest(after_a, dl_dir, ("m4a", "mp3", "mp4"))
+            a_file = _pick_newest_by_template(dl_dir, "UD_", ("m4a", "mp3", "mp4"), min_mtime=ts_a)
+            if a_file and a_file == v_file:
+                a_file = None  # 音频检测不能命中视频文件
+            if not a_file:
+                # 排除视频文件后重新兜底
+                a_cands = []
+                for name in os.listdir(dl_dir):
+                    if not name.startswith("UD_"):
+                        continue
+                    ext = os.path.splitext(name)[1].lower().strip(".")
+                    if ext in ("m4a", "mp3", "mp4") and os.path.isfile(os.path.join(dl_dir, name)):
+                        p = os.path.join(dl_dir, name)
+                        if p != v_file:
+                            a_cands.append(p)
+                if a_cands:
+                    a_file = max(a_cands, key=os.path.getmtime)
 
             if not v_file:
                 return _safe_json({"success": False, "error": "视频流下载失败(可能触发风控, 请重试或保持登录)"})
