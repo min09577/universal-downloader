@@ -14,7 +14,8 @@ import kotlinx.coroutines.withContext
  */
 class BiliGrpcClient(
     private val context: android.content.Context?,
-    private val cookieHeader: String,
+    private val accessKey: String,
+    private val cookieHeader: String = "",
 ) : AutoCloseable {
 
     private val channel: ManagedChannel by lazy {
@@ -25,7 +26,7 @@ class BiliGrpcClient(
 
     private val coroutineStub by lazy {
         bilibili.app.playerunite.v1.PlayerGrpcKt.PlayerCoroutineStub(channel)
-            .withInterceptors(BiliMetadataInterceptor(context, cookieHeader))
+            .withInterceptors(BiliMetadataInterceptor(context, accessKey, cookieHeader))
     }
 
     /** 供 testTrial 独立组 stub（自定义 req，需完整 Reply 含 qn_trial_info） */

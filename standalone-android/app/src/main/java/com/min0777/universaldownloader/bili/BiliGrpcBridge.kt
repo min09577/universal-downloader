@@ -36,7 +36,7 @@ object BiliGrpcBridge {
                     append("buvid3=").append(buvid)
                 }
             }
-            BiliGrpcClient(context = app, cookieHeader = cookieHeader).use { client ->
+            BiliGrpcClient(context = app, accessKey = "", cookieHeader = cookieHeader).use { client ->
                 val vod = kotlinx.coroutines.runBlocking {
                     client.playViewUnite(aid = aid, cid = cid, qn = qn)
                 }
@@ -81,8 +81,10 @@ object BiliGrpcBridge {
                 ?: return errorJson("app 未初始化").also { log(it) }
             val buvid = BiliMetadataFactory.buvid(app)
             val cookieHeader = "buvid3=$buvid"
-            log("testTrial begin aid=$aid cid=$cid buvid=$buvid")
-            BiliGrpcClient(context = app, cookieHeader = cookieHeader).use { client ->
+            log("testTrial begin aid=$aid cid=$cid buvid=$buvid auth=identify_v1+'' cookie=$cookieHeader")
+            // 匿名实验：access_key 真正留空串（绝不把 cookie 串塞进 access_key）；
+            // authorization 头由 Interceptor 注入 "identify_v1 " + ""；buvid3 同时走 cookie 头与 metadata.buvid 字段
+            BiliGrpcClient(context = app, accessKey = "", cookieHeader = cookieHeader).use { client ->
                 val reply = kotlinx.coroutines.runBlocking {
                     // 直接走 stub 层拿完整 Reply（含 qn_trial_info），不复用 playViewUnite（只回 vod_info）
                     val req = bilibili.app.playerunite.v1.PlayViewUniteReq.newBuilder()
@@ -101,7 +103,7 @@ object BiliGrpcBridge {
                         .setFromSpmid("0")
                         .build()
                     val stub = bilibili.app.playerunite.v1.PlayerGrpcKt.PlayerCoroutineStub(client.rawChannel)
-                        .withInterceptors(BiliMetadataInterceptor(app, cookieHeader))
+                        .withInterceptors(BiliMetadataInterceptor(app, "", cookieHeader))
                     stub.playViewUnite(req)
                 }
                 val vod = reply.vodInfo
