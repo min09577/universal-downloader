@@ -49,6 +49,7 @@
 | 特性 | 说明 |
 |------|------|
 | 🧠 **智能链接解析** | 基于 yt-dlp 抽取引擎，自动识别 1000+ 站点，粘贴即下 |
+| 🎥 **B站 4K 下载** | 4K 限免视频自动获取完整 4K 流（3840×2160），大会员账号全站 4K 直下 |
 | 📱 **Fully Offline** | 纯本地执行，无服务器中转，隐私零泄露 |
 | 🐍 **Python-on-Android** | Chaquopy 内嵌 Python 运行时，yt-dlp 直接在设备上跑 |
 | 📕 **小红书深度适配** | 2026 前端全面适配：图文/视频双管线、`xsec_token`、短链 `.cn` 域名、EF4~EF7 码率选优 |
@@ -71,6 +72,26 @@
 
 > **⚠️ 声明：** 本软件及源码仅供学习交流使用，严禁用于商业用途。与各平台官方无关，请尊重内容创作者权益。
 
+## 🆕 ai.1.0.21 — B站 4K 下载
+
+> ### 🎬 4K 限免视频，完整 4K 直下
+> B 站将部分 4K 视频标记为「4K 限免」，对全部登录用户开放 4K 流。
+> 本版本新增 B 站专用 4K 路径：登录后自动请求 4K 流（`qn=120` + `fourk`），
+> 严格校验服务端实际下发的流（`id==120` 筛选），拿到即下，拿不到自动降级
+> yt-dlp 管线取账号内最高画质——**所见即所得，绝不虚标**。
+>
+> ### 🔬 真机实测
+> 影视飓风 4K 年度样片（218 秒）：视频轨 328.1MB + 音频轨 5.1MB →
+> FFmpegKit 合并 349.6MB，ffprobe 确认 **h264 · 3840×2160 · 12.6Mbps · 完整时长含 AAC 音轨**。
+>
+> ### 🛠️ 附带修复
+> - `[bili4k]` 全链路日志打点，降级原因一目了然
+> - 流下载 2 次退避重试，瞬态网络抖动不再静默降级
+> - 产物检测改模板匹配，历史残留文件不再误报「下载失败」
+>
+> 📌 **画质与账号关系**：非限免 4K 需大会员账号（B 站服务端按账号权限下发流），
+> 登录大会员后全站 4K 自动解锁——详见上方「B站画质下载说明」。
+
 ## 🆕 v1.0.4 — 小红书 2026 管线重构
 
 > ### 🧬 站点改版全面适配，图文视频双双回归
@@ -88,13 +109,49 @@
 > `tests/xhs_harness.py` 直接加载 App 内真实 Python 管线，`probe / download / regress`
 > 三个命令秒级回归，把「改码→CI→装 APK→手测」的分钟级循环压到秒级。
 
+## 🎬 B站画质下载说明 / Bilibili Quality Guide
+
+<details open>
+<summary><b>🇨🇳 中文 — 画质与账号权限对照表</b></summary>
+
+| 视频类型 | 未登录 | 普通账号登录 | 大会员登录 |
+|---|---|---|---|
+| **4K 限免视频**（标题带「4K限免」标） | 480P | **✅ 真 4K（3840×2160）** | ✅ 真 4K |
+| **4K 专属视频**（无限免标） | 480P | 1080P（B站服务端限制，任何客户端无法绕过） | **✅ 真 4K** |
+| 1080P 高码率 / 1080P60 | 480P | ✅ **自动顶格** | ✅ |
+| HDR / 杜比视界 | — | — | ✅ |
+
+**原理（说人话）**：B 站服务器按登录账号的会员身份决定下发哪些流。本 App 的策略是「**服务端给什么就下什么，永远挑最高档**」——
+
+- **限免 4K**：B 站官方将此类视频的 4K 流对全部登录用户开放，本 App 自动获取完整 4K 流（含音轨），真机实测 349MB / 218 秒完整时长
+- **非限免 4K**：4K 流地址仅对大会员账号下发。**登录大会员账号后，全站 4K/杜比 自动解锁下载，无需任何额外操作**
+- 未登录 / 普通账号：自动获取该账号权限内的最高画质（1080P 高码率 / 1080P60），绝不虚标
+
+> ⚠️ **非会员下载非限免 4K 无法通过任何客户端技术实现**——B 站服务端按账号权限裁剪流地址，请知悉。如需全站 4K，开通大会员后直接登录即可。
+
+</details>
+
+<details>
+<summary><b>🇺🇸 English — Quality & Account Matrix</b></summary>
+
+| Video Type | Anonymous | Free Account | Premium (大会员) |
+|---|---|---|---|
+| **4K Limited-Free** (「4K限免」badge) | 480P | **✅ True 4K (3840×2160)** | ✅ True 4K |
+| **4K Exclusive** (no badge) | 480P | 1080P (server-side limit, no client can bypass) | **✅ True 4K** |
+| 1080P High-Bitrate / 60fps | 480P | ✅ **Auto-max** | ✅ |
+| HDR / Dolby Vision | — | — | ✅ |
+
+**How it works**: Bilibili's server decides which streams to serve based on your account's membership. OmniDL always downloads **the highest quality the server actually serves** — for Limited-Free 4K videos that means true 4K with audio (verified on-device: 349MB, full duration); for 4K-exclusive videos, a Premium account unlocks full-site 4K downloads automatically after login. No technical trick can bypass the server-side permission model for non-premium accounts.
+
+</details>
+
 ## 💡 使用贴士 / Pro Tips
 
 | 场景 | 建议 |
 |------|------|
 | 📋 **粘贴链接** | 支持带中文口令的整段分享文本，自动提取纯净 URL |
 | 📲 **分享即下** | 在抖音/B站/小红书点「分享」，选择全能下载器，自动识别 |
-| 🔐 **B站原画** | 先在 App 内「B站登录」完成 WebView 登录，再下载即原画 |
+| 🔐 **B站原画** | 先在 App 内「B站登录」完成 WebView 登录，再下载即原画；**大会员账号登录后全站 4K 自动解锁**（见上方画质说明） |
 | 📕 **小红书图文** | 多图笔记批量保存，历史记录点击可回看原图 |
 | 📋 **排障辅助** | 日志面板 → 一键复制 → 提交 issue 时附上，事半功倍 |
 | 🧪 **开发者** | `python tests/xhs_harness.py regress` 跑回归，`cookies_xhs.txt` 放登录态（已 gitignore） |
@@ -120,6 +177,10 @@
 | v1.0.0 | 2026-06-17 | **📕 小红书生产管线** — Triple-Pass URL 规范化 + 图文批量下载 |
 | v1.0.1~1.0.3 | 2026-06-17 | 小红书三策略降级 + xsec_token + 图片正则修复 |
 | v1.0.4 | 2026-09-02 | **🧬 2026 管线重构** — `new Map` 解析器 + camelCase 兼容 + `xsec_token` 贯通 + `xhslink.cn` + EF 码率选优直连 + PC 测试台 |
+| ai.1.0.5~1.0.8 | 2026-09-02 | 🖋️ **品牌化** — 开屏弹窗（仓库/ GitHub 链接）+ 作者署名徽章 + ⚙关于入口 + 检查更新双通道（api.github.com 限流自动回退 releases/latest 重定向）+ release 签名（固定 keystore，覆盖安装） |
+| ai.1.0.9~1.0.14 | 2026-09-03 | 🔊 **B站有声** — 无 ffmpeg 环境双流分下（视频 avc1 限定 + 音频 m4a）+ 内置 FFmpegKit（FFmpeg 6.0）`-c copy` 无损拼装 + 系统级 MediaMuxer 降级兜底 |
+| ai.1.0.15~1.0.20 | 2026-09-03 | 🛠️ **拼装链路 hardened** — FFmpegKit 装载修复 + selectTrack 时序 + 输出同名冲突 + MediaStore 落盘 Download + `-fflags +genpts` PTS 重建（修 B 帧流绿屏） |
+| **ai.1.0.21** | 2026-09-04 | **🎬 B站 4K 下载** — 4K 限免视频自动获取完整 4K 流（真机实测 349MB / 3840×2160 / 完整时长含音轨）；4K 路径优先 + 自动降级（`id==120` 严格筛流，绝不虚标）；`[bili4k]` 全链路日志打点；流下载 2 次退避重试；产物检测按模板匹配修复残留误报；gRPC 高画质桥接层预留（休眠） |
 | [⬇️ 最新 Release](https://github.com/min09577/universal-downloader/releases/latest) | | **← APK 下载点这里 / Download APK here** |
 
 ---
