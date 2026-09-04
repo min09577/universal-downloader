@@ -76,23 +76,6 @@ def _bili_extract_ids(url):
     return None
 
 
-def _bili_ytdlp_max_height(url):
-    """yt-dlp 解析出的最高视频流高度；解析失败返回 0"""
-    try:
-        from yt_dlp import YoutubeDL
-        opts = _ytdlp_base_opts()
-        cf = _cookies_file("www.bilibili.com")
-        if cf:
-            opts["cookiefile"] = cf
-        opts["http_headers"] = {"Referer": "https://www.bilibili.com/", "Origin": "https://www.bilibili.com"}
-        with YoutubeDL(opts) as ydl:
-            info = ydl.extract_info(url, download=False)
-        heights = [f.get("height") or 0 for f in (info.get("formats") or [])]
-        return max(heights) if heights else 0
-    except Exception:
-        return 0
-
-
 def _bili_log(msg):
     """降级可观测性：print 进 stdout，Chaquopy 会桥接到 logcat（tag: python.stdout）"""
     try:
@@ -463,12 +446,13 @@ def download_video(url, progress_callback=None):
 
         # === 平台特化 format ===
         if "bilibili.com" in domain:
-            # gRPC 4K 路径: yt-dlp 无高画质流(>=2160)或解析失败时尝试（失败自动降级）
-            max_h = _bili_ytdlp_max_height(url)
-            if max_h < 2160:
-                grpc_result = _bili_4k(url, dl_dir, progress_callback)
-                if grpc_result:
-                    return grpc_result
+            # 4K 路径优先：直接以 playurl 实际下发为准（SESSDATA+qn=120+fourk=1，
+            # 严格筛 id==120 流），不用猜 yt-dlp 元数据（元数据里的 2160 流可能是
+            # 需 VIP 的 HEVC Main10，实际不可下载）。拿不到（非VIP/无限免/无4K片源）
+            # 自动降级 yt-dlp 现有双轨逻辑。
+            grpc_result = _bili_4k(url, dl_dir, progress_callback)
+            if grpc_result:
+                return grpc_result
             # B站 DASH: 视频/音频分轨
             if has_ff:
                 # ffmpeg 可用 → 单次下载并合并出有声视频（实证 1080P+AAC）
