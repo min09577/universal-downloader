@@ -26,6 +26,7 @@ android {
         }
 
         python {
+            version '3.12'
             buildPython System.getenv('PYTHON_PATH') ?: 'python3'
             pip {
                 install 'yt-dlp'
