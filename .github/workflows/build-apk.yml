@@ -77,22 +77,19 @@ jobs:
       - uses: softprops/action-gh-release@v2
         if: steps.apk.outputs.apk_path != ''
         with:
-          tag_name: ai.1.0.20
-          name: "全能下载器 ai.1.0.20"
+          tag_name: ai.1.0.21
+          name: "全能下载器 ai.1.0.21"
           body: |
-            ## 全能下载器 · OmniDL ai.1.0.20
+            ## 全能下载器 · OmniDL ai.1.0.21
             **泛在媒体获取引擎** — 智能多平台媒体下载客户端
 
             ### 本版更新
-            - 🖥️ 修复部分 B 站视频绿屏：拼装时 `-fflags +genpts -avoid_negative_ts make_zero` 重建 PTS（B 帧流时间戳丢失场景）
-            - 🐛 修复 B 站合并产物未落盘到 Download 目录（私有 cache → MediaStore 补落盘）
-            - 🐛 修复 B 站拼装「输出与输入同名」冲突（ffmpeg 拒绝原地编辑）
-            - 🔧 拼装日志改为尾部截取（含最终错误信息）
-            - 🔧 补齐 smart-exception 运行时依赖（FFmpegKit 异常链缺失导致引擎无法启动）
-            - 🔧 拼装链路诊断增强（OmniDL-Merge 日志）
-            - 🔊 **B站视频有声** — 内置 FFmpegKit 引擎（FFmpeg 6.0），双轨 `-c copy` 无损拼装，分片格式通吃
-            - 🛟 系统级 MediaMuxer 自动降级兜底
-            - 📊 拼装阶段进度实时上报
+            - 🎬 **B站 4K 下载** — 4K 限免视频自动获取完整 4K 流（普通账号可用），`id==120` 严格筛流保证"所见即所得"
+            - 🔁 4K 路径优先 + 自动降级：拿不到 4K 自动回落 yt-dlp 1080P 顶格，永不误标清晰度
+            - 🛠️ B站下载全链路可观测（`[bili4k]` 日志打点），降级原因一目了然
+            - 🔄 流下载自动重试（2 次退避），瞬态网络抖动不再导致静默降级
+            - 🐛 修复产物检测误报（残留文件不再导致「下载失败」假提示）
+            - 🧩 gRPC 高画质桥接层就位（预留，后续版本启用）
             - ⚠️ APK 体积增加 ~15MB（含 arm64/x86_64 引擎库）
             - 🐛 修复 B 站拼装视频轨 0 帧：selectTrack 时序修正 + 4MB 大帧缓冲保险
             - 🔊 **B站视频有声** — 系统级 MediaMuxer 无损拼装双轨，无需 ffmpeg：视频(H.264)+音频(AAC) → 有声 MP4
