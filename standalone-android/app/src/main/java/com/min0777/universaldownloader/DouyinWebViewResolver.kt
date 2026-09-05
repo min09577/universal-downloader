@@ -28,14 +28,17 @@ import java.util.concurrent.atomic.AtomicReference
  *   ③ evaluateJavascript 轮询 window._ROUTER_DATA 里的 playAddr / video slug
  * 拿到 video_id 后交 Python 走 aweme/v1/play 网关 302 直链（无需再回 WebView）。
  *
- * 必须在主线程调用 resolve()（WebView 创建约束）；Python 侧经 Chaquopy 调用时
- * 运行在 Python 后台线程，因此内部 Handler(Looper.getMainLooper()) 投递 +
+ * 线程约束：resolve() 禁止在主线程调用（内部阻塞等待，主线程调用会 ANR，
+ * fail-fast 抛 IllegalStateException）；Python 侧经 Chaquopy 调用时运行在
+ * Python 后台线程，内部 Handler(Looper.getMainLooper()) 投递 +
  * CountDownLatch 同步等待。超时兜底 25s（含页面加载+风控判定+XHR 时窗）。
  */
 object DouyinWebViewResolver {
 
     private const val TAG = "DyResolver"
     private const val TIMEOUT_SECONDS = 25L
+
+    private val mainHandler = Handler(Looper.getMainLooper())
 
     /** JS 桥：页面侧脚本无法注入时兜底（当前主要靠拦截/轮询，保留通道） */
     private class Bridge {
@@ -49,6 +52,11 @@ object DouyinWebViewResolver {
     private val resultRef = AtomicReference<String?>(null)
     private val latchRef = AtomicReference<CountDownLatch?>(null)
     private val done = AtomicBoolean(false)
+    private val destroyed = AtomicBoolean(false)
+
+    /** 当前活跃的 WebView（resolve 期间挂主线程 Handler 的轮询引用它，cleanup 时一并回收） */
+    @Volatile
+    private var activeWebView: WebView? = null
 
     /**
      * 解析抖音分享链接/长链 → video_id（v0xx）。失败返回 null。
@@ -60,14 +68,15 @@ object DouyinWebViewResolver {
         }
         resultRef.set(null)
         done.set(false)
+        destroyed.set(false)
         val latch = CountDownLatch(1)
         latchRef.set(latch)
 
-        val main = Handler(Looper.getMainLooper())
-        main.post {
+        mainHandler.post {
             var webView: WebView? = null
             try {
                 webView = createWebView()
+                activeWebView = webView
                 attachAndLoad(webView, url)
             } catch (t: Throwable) {
                 android.util.Log.w(TAG, "webview setup failed: ${t.message}")
@@ -119,39 +128,48 @@ object DouyinWebViewResolver {
                     if (s.contains("aweme/v1/play")) {
                         u.getQueryParameter("video_id")?.let { hit(it) }
                     }
-                    // ② douyinvod 媒体 URL path 里含 v0xx 片段
-                    if (s.contains("douyinvod.com") || s.contains("douyinpic")) {
+                    // ② 仅 douyinvod 媒体 URL path 里含 v0xx 片段。
+                    // 不纳入 douyinpic：其 path 同样含 v0 开头的封面/图片资源 id，
+                    // first-hit-wins 下封面会抢先污染结果（play 校验失败 → yt-dlp 又被 Argus 拦 → 全链路失败）
+                    if (s.contains("douyinvod.com")) {
                         VID_IN_PATH.findAll(s).firstOrNull()?.let { hit(it.value) }
                     }
                     // ③ detail 接口 query 带 aweme_id（说明页面在拉详情，配合 JS 轮询读响应）
                     if (s.contains("/aweme/v1/web/aweme/detail")) {
-                        main.post { pollRouterData(view) }
+                        mainHandler.post { pollRouterData(view) }
                     }
                 }
                 return null
             }
         }
         wv.loadUrl(url)
-        // 轮询兜底：页面若未自动触发播放请求，定时从 JS 环境抽 video_id
+        // 轮询兜底：页面若未自动触发播放请求，定时从 JS 环境抽 video_id。
+        // cleanup() 会 removeCallbacks 取消 pending 轮询——防止 jsvmp 拖住主线程时，
+        // 轮询对已 destroy 的 WebView 调 evaluateJavascript 抛 IllegalStateException 崩溃
         var tries = 0
         val poll = object : Runnable {
             override fun run() {
-                if (done.get() || tries++ > 8) return
+                if (done.get() || destroyed.get() || tries++ > 8) return
                 pollRouterData(wv)
-                main.postDelayed(this, 2500)
+                mainHandler.postDelayed(this, 2500)
             }
         }
-        main.postDelayed(poll, 3000)
+        mainHandler.postDelayed(poll, 3000)
     }
 
     private fun pollRouterData(wv: WebView) {
-        if (done.get()) return
-        wv.evaluateJavascript(
-            "(function(){try{return (window._ROUTER_DATA&&JSON.stringify(window._ROUTER_DATA))||''}catch(e){return ''}})()",
-        ) { json ->
-            if (!done.get() && !json.isNullOrBlank() && json.length > 4) {
-                VID_IN_JSON.findAll(json).firstOrNull()?.let { hit(it.value) }
+        if (done.get() || destroyed.get()) return
+        try {
+            wv.evaluateJavascript(
+                "(function(){try{return (window._ROUTER_DATA&&JSON.stringify(window._ROUTER_DATA))||''}catch(e){return ''}})()",
+            ) { json ->
+                if (!done.get() && !json.isNullOrBlank() && json.length > 4) {
+                    VID_IN_JSON.findAll(json).firstOrNull()?.let { hit(it.value) }
+                }
             }
+        } catch (t: Throwable) {
+            // WebView 已销毁/非主线程等场景：轮询是兜底路径，吞掉即可
+            android.util.Log.d(TAG, "poll skipped: ${t.message}")
         }
     }
 
@@ -168,18 +186,23 @@ object DouyinWebViewResolver {
 
     /** resolve 完成后由调用方在合适时机触发 WebView 回收（避免泄漏） */
     fun cleanup() {
-        Handler(Looper.getMainLooper()).post {
-            (MainActivity.foregroundActivity?.window?.decorView as? android.view.ViewGroup)
-                ?.let { vg ->
-                    for (i in vg.childCount - 1 downTo 0) {
-                        val c = vg.getChildAt(i)
-                        if (c is WebView) {
-                            c.stopLoading()
-                            c.destroy()
-                            vg.removeView(c)
-                        }
-                    }
+        destroyed.set(true)
+        mainHandler.post {
+            // 先摘掉引用并取消 pending 轮询，再销毁——次序不可反
+            val wv = activeWebView
+            activeWebView = null
+            if (wv != null) {
+                mainHandler.removeCallbacksAndMessages(null)
+            }
+            wv?.let {
+                try {
+                    it.stopLoading()
+                    it.destroy()
+                } catch (t: Throwable) {
+                    android.util.Log.w(TAG, "webview destroy: ${t.message}")
                 }
+                (it.parent as? android.view.ViewGroup)?.removeView(it)
+            }
         }
     }
 }
