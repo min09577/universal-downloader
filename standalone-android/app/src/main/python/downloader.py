@@ -365,6 +365,110 @@ def _ixigua_4k(url, dl_dir, progress_callback=None):
         return None
 
 
+# ========== 抖音专管线（Kotlin WebView 渲染解析 + play 网关直链） ==========
+# 服务端 API 全被 Argus 拦（aweme/detail 需 a_bogus 签名），纯 Python 拿不到 video_id；
+# video_id 由 Kotlin DouyinWebViewResolver 在真渲染 WebView 里捕获（三路：play 请求 query /
+# douyinvod 媒体 URL / _ROUTER_DATA 轮询）。拿到 video_id 后走 aweme/v1/play 网关 302 直链
+# （无签名，UA 用 app 标识；ratio 阶梯 540p/720p/1080p 实测递增，2k/4k 接受但片源封顶 1080）。
+
+_DY_UA_PLAY = "com.ss.android.ugc.aweme/110101"
+
+
+def _douyin_log(msg):
+    try:
+        print(f"[douyin] {msg}", flush=True)
+    except Exception:
+        pass
+
+
+def _douyin_is_share(url):
+    """抖音链接形态识别：v.douyin.com 分享码 / iesdouyin share 页 / douyin.com 长链"""
+    return ("v.douyin.com" in url
+            or "iesdouyin.com/share" in url
+            or "iesdouyin.com/video" in url
+            or re.search(r'douyin\.com/(?:video/)?\d{15,}', url) is not None)
+
+
+def _douyin_direct(url, dl_dir, progress_callback=None):
+    """
+    抖音直链管线：Kotlin DouyinWebViewResolver.resolve(短链) 拿 video_id
+    → aweme/v1/play 网关 302 直链 → requests 直下完整 MP4（音轨已拼好，needs_remux=False）。
+    ratio 从 1080p 起阶梯降级探测（4k/2k 对无高画源服务端自动回落 1080p）。
+    任一步失败打 [douyin] 日志并返回 None，调用方降级 yt-dlp DouyinIE。
+    """
+    _douyin_log(f"enter: url={url[:80]}")
+    try:
+        import requests as req
+
+        # ① Kotlin WebView 渲染解析 → video_id
+        from com.min0777.universaldownloader import DouyinWebViewResolver
+        page_url = _ixigua_shortlink_resolve(url)  # v.douyin.com 短链先 302 展开（无风险，纯 302）
+        target = page_url if ("iesdouyin.com/share" in page_url or "iesdouyin.com/video" in page_url) else url
+        vid = DouyinWebViewResolver.resolve(target)
+        DouyinWebViewResolver.cleanup()
+        if not vid:
+            _douyin_log("abort: resolver returned no video_id")
+            return None
+        _douyin_log(f"video_id={vid[:26]}...")
+
+        # ② play 网关 302 → 直链（ratio 阶梯：1080p 起步，服务端无高画源自动回落）
+        direct = None
+        for ratio in ("1080p", "720p", "540p", "default"):
+            api = f"https://www.iesdouyin.com/aweme/v1/play/?video_id={vid}&ratio={ratio}&line=0"
+            r2 = req.get(api, headers={"User-Agent": _DY_UA_PLAY}, allow_redirects=False, timeout=15)
+            if r2.status_code in (301, 302, 303, 307, 308):
+                loc = r2.headers.get("Location") or ""
+                if loc.startswith("http"):
+                    direct = loc
+                    _douyin_log(f"ratio={ratio} -> 302 ok")
+                    break
+        if not direct:
+            _douyin_log("abort: play gateway no redirect on all ratios")
+            return None
+
+        safe_title = f"dy_{vid[:26]}"
+        out_file = os.path.join(dl_dir, f"UD_{safe_title}.mp4")
+
+        def _cb(done, total):
+            if progress_callback and total:
+                try:
+                    progress_callback(min(int(done * 99 / total), 99), f"{done/1048576:.1f}MB")
+                except Exception:
+                    pass
+
+        # ③ 直下完整 MP4（UA 用 app 标识 + douyin Referer；实测 302 落点 HEAD 200）
+        if not _requests_download_retry(direct, out_file,
+                                        {"User-Agent": _DY_UA_PLAY, "Referer": "https://www.douyin.com/"},
+                                        progress_cb=_cb):
+            return None
+        if progress_callback:
+            try:
+                progress_callback(100, "处理中...")
+            except Exception:
+                pass
+
+        size = os.path.getsize(out_file)
+        if size < 100 * 1024:
+            _douyin_log(f"file too small ({size}B), suspected risk response")
+            try:
+                os.remove(out_file)
+            except Exception:
+                pass
+            return None
+        _douyin_log(f"ok: {size/1048576:.1f}MB direct mp4 (muxed)")
+        return _safe_json({
+            "success": True,
+            "needs_remux": False,  # 服务端已拼好音轨
+            "filename": f"{safe_title}.mp4",
+            "path": out_file,
+            "size_mb": round(size / (1024 * 1024), 2),
+            "note": "douyin WebView 直链 (aweme/v1/play 302)",
+        })
+    except Exception as e:
+        _douyin_log(f"exception: {type(e).__name__}: {str(e)[:200]}")
+        return None
+
+
 def _cookies_file(domain):
     """创建临时 cookies 文件"""
     c = _get_cookies(domain)
@@ -660,26 +764,44 @@ def download_video(url, progress_callback=None):
                 "bestaudio[ext=m4a]/bestaudio",
                 opts, progress_callback)
 
-        elif "ixigua.com" in domain or "v.douyin.com" in domain:
-            # 西瓜专管线（极简）：分享短链 302 → video_id → play API 直链 MP4（h264+aac 已拼好）
-            # v.douyin.com 分享码既可能是抖音也可能是西瓜：统一先走西瓜管线 302 解析，
-            # 解析出 /xg/video/ 即西瓜直链成功；失败降级 yt-dlp（抖音路径/西瓜 IxiguaIE）
+        elif "v.douyin.com" in domain:
+            # v.douyin.com 分享码既可能是抖音也可能是西瓜：先走西瓜管线 302 解析
+            # （解析出 /xg/video/ 即西瓜），失败再走抖音 WebView 直链，最后 yt-dlp
             ixg = _ixigua_4k(url, dl_dir, progress_callback)
             if ixg:
                 return ixg
-            if "v.douyin.com" in domain:
-                # 抖音降级：走 yt-dlp DouyinIE（无 ffmpeg 时同样避免 bv*+ba 合并需求）
-                if has_ff:
-                    opts["format"] = "bv*+ba/b"
-                else:
-                    return _two_pass_streams(
-                        url, dl_dir,
-                        "bestvideo[ext=mp4]/bestvideo",
-                        "bestaudio[ext=m4a]/bestaudio",
-                        opts, progress_callback)
+            dy = _douyin_direct(url, dl_dir, progress_callback)
+            if dy:
+                return dy
+            # 抖音降级：走 yt-dlp DouyinIE（无 ffmpeg 时同样避免 bv*+ba 合并需求）
+            if has_ff:
+                opts["format"] = "bv*+ba/b"
             else:
-                opts["format"] = "bestvideo*+bestaudio/best" if has_ff else "best"
-                opts["http_headers"] = {"Referer": "https://www.ixigua.com/", "Origin": "https://www.ixigua.com"}
+                return _two_pass_streams(
+                    url, dl_dir,
+                    "bestvideo[ext=mp4]/bestvideo",
+                    "bestaudio[ext=m4a]/bestaudio",
+                    opts, progress_callback)
+        elif "douyin.com" in domain or "iesdouyin.com" in domain:
+            # 抖音主域（www.douyin.com 长链 / iesdouyin share 页）：WebView 直链优先
+            dy = _douyin_direct(url, dl_dir, progress_callback)
+            if dy:
+                return dy
+            if has_ff:
+                opts["format"] = "bv*+ba/b"
+            else:
+                return _two_pass_streams(
+                    url, dl_dir,
+                    "bestvideo[ext=mp4]/bestvideo",
+                    "bestaudio[ext=m4a]/bestaudio",
+                    opts, progress_callback)
+        elif "ixigua.com" in domain:
+            # 西瓜专管线（极简）：分享短链 302 → video_id → play API 直链 MP4（h264+aac 已拼好）
+            ixg = _ixigua_4k(url, dl_dir, progress_callback)
+            if ixg:
+                return ixg
+            opts["format"] = "bestvideo*+bestaudio/best" if has_ff else "best"
+            opts["http_headers"] = {"Referer": "https://www.ixigua.com/", "Origin": "https://www.ixigua.com"}
         elif "xiaohongshu.com" in domain or "xhslink.com" in domain or "xhslink.cn" in domain:
             # 小红书直接用 requests 解析 HTML
             return _download_xhs(url, dl_dir, progress_callback)
@@ -1156,7 +1278,7 @@ def detect_platform(url):
         "bilibili": ["bilibili.com", "b23.tv"],
         "ixigua": ["ixigua.com", "v.douyin.com"],
         "youtube": ["youtube.com", "youtu.be"],
-        "douyin": ["douyin.com", "tiktok.com"],
+        "douyin": ["douyin.com", "iesdouyin.com", "tiktok.com"],
         "kuaishou": ["kuaishou.com"],
         "xiaohongshu": ["xiaohongshu.com", "xhslink.com", "xhslink.cn"],
         "weibo": ["weibo.com", "weibo.cn"],

@@ -30,6 +30,12 @@ import java.util.*
 
 class MainActivity : AppCompatActivity() {
 
+    companion object {
+        /** 前台 Activity 引用：DouyinWebViewResolver 等需要挂载隐藏 WebView 的组件用 */
+        @JvmStatic
+        var foregroundActivity: MainActivity? = null
+    }
+
     private lateinit var binding: ActivityMainBinding
     private lateinit var adapter: DownloadAdapter
     private val historyItems = mutableListOf<HistoryItem>()
@@ -38,8 +44,14 @@ class MainActivity : AppCompatActivity() {
     private var lastFilePath: String? = null
     private var lastDownloadUrl: String? = null
 
+    override fun onDestroy() {
+        foregroundActivity = null
+        super.onDestroy()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        foregroundActivity = this
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
         setupUI()
