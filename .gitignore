@@ -56,3 +56,13 @@ tests/cookies_*.txt
 tests/regress_last.json
 .venv/
 tests/xhs_urls.txt
+tools/ffmpeg.exe
+tests/_probe_*.py
+tests/_ixigua_*.json
+tests/_ixigua_*.mp4
+tests/pull_chrome_cookies_ixigua.py
+t1*.png
+t3*.png
+t4*.png
+ui_*.xml
+rebuild*.log
