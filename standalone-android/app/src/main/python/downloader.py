@@ -559,6 +559,58 @@ def _pick_newest(names, dl_dir, exts):
     return max(cands, key=os.path.getmtime)
 
 
+def _two_pass_streams(url, dl_dir, v_format, a_format, base_opts, progress_callback=None):
+    """
+    无 ffmpeg 两遍单流下载（B站 ai.1.0.11~14 已验证方案的通用化）：
+    先视频流再音频流，单流不触发 yt-dlp 合并器，产物交 Kotlin MediaMuxer/FFmpegKit 拼装。
+    产物按 UD_ 模板前缀 + mtime 时间窗匹配。返回 _safe_json 结果 JSON 串。
+    """
+    import time as _time
+    from yt_dlp import YoutubeDL
+    opts = dict(base_opts)
+    ts_v = _time.time()
+    opts_v = dict(opts); opts_v["format"] = v_format
+    with YoutubeDL(opts_v) as ydl:
+        ydl.extract_info(url, download=True)
+    v_file = _pick_newest_by_template(dl_dir, "UD_", ("mp4", "mkv", "webm"), min_mtime=ts_v)
+    if not v_file:
+        v_file = _pick_newest_by_template(dl_dir, "UD_", ("mp4", "mkv", "webm"))
+
+    ts_a = _time.time()
+    opts_a = dict(opts); opts_a["format"] = a_format
+    with YoutubeDL(opts_a) as ydl:
+        ydl.extract_info(url, download=True)
+    a_file = _pick_newest_by_template(dl_dir, "UD_", ("m4a", "mp3", "mp4"), min_mtime=ts_a)
+    if a_file and a_file == v_file:
+        a_file = None
+    if not a_file:
+        a_cands = []
+        for name in os.listdir(dl_dir):
+            if not name.startswith("UD_"):
+                continue
+            ext = os.path.splitext(name)[1].lower().strip(".")
+            if ext in ("m4a", "mp3", "mp4") and os.path.isfile(os.path.join(dl_dir, name)):
+                p = os.path.join(dl_dir, name)
+                if p != v_file:
+                    a_cands.append(p)
+        if a_cands:
+            a_file = max(a_cands, key=os.path.getmtime)
+
+    if not v_file:
+        return _safe_json({"success": False, "error": "视频流下载失败(可能触发风控, 请重试或保持登录)"})
+    if not a_file:
+        return _safe_json({"success": True, "filename": os.path.basename(v_file),
+                           "path": v_file, "size_mb": round(os.path.getsize(v_file)/(1024*1024), 2),
+                           "note": "音频流下载失败, 本次无声音"})
+    total = os.path.getsize(v_file) + os.path.getsize(a_file)
+    return _safe_json({
+        "success": True, "needs_remux": True,
+        "filename": os.path.splitext(os.path.basename(v_file))[0],
+        "path": v_file, "files": [v_file, a_file],
+        "size_mb": round(total/(1024*1024), 2),
+    })
+
+
 def download_video(url, progress_callback=None):
     url = normalize_url(url)
     domain = _get_domain(url)
@@ -597,62 +649,16 @@ def download_video(url, progress_callback=None):
                 with YoutubeDL(opts) as ydl:
                     ydl.extract_info(url, download=True)
                 return _find_downloaded(dl_dir)
-            # 无 ffmpeg → 两遍单流下载（单流不触发 yt-dlp 合并器），交给 Kotlin MediaMuxer 无损拼装
+            # 无 ffmpeg → 两遍单流下载（通用化方案，交 MediaMuxer 拼装）
             # 视频流必须 H.264(avc1)+mp4: MediaMuxer 不支持 AV1(100026) / HEVC 兼容性差(100113)
-            h264_v = "bestvideo[vcodec^=avc1][height<=1080]/bestvideo[vcodec^=avc1]/bestvideo[vcodec^=avc1][ext=mp4]"
-            a_only = "bestaudio[ext=m4a]/bestaudio"
             opts["http_headers"] = {"Referer": "https://www.bilibili.com/", "Origin": "https://www.bilibili.com"}
             cf = _cookies_file(domain)
             if cf: opts["cookiefile"] = cf
-
-            # 产物检测：按 outtmpl 模板（UD_ 前缀）+ mtime 晚于下载起点匹配，
-            # 避免目录内历史残留文件被 listdir 差集误判为本次产物（或反之误报失败）
-            import time as _time
-            ts_v = _time.time()
-            opts_v = dict(opts); opts_v["format"] = h264_v
-            with YoutubeDL(opts_v) as ydl:
-                ydl.extract_info(url, download=True)
-            v_file = _pick_newest_by_template(dl_dir, "UD_", ("mp4", "mkv", "webm"), min_mtime=ts_v)
-            if not v_file:
-                # mtime 兜底：严格时间窗失灵（文件系统粒度）时回退为只看模板前缀
-                v_file = _pick_newest_by_template(dl_dir, "UD_", ("mp4", "mkv", "webm"))
-
-            ts_a = _time.time()
-            opts_a = dict(opts); opts_a["format"] = a_only
-            with YoutubeDL(opts_a) as ydl:
-                ydl.extract_info(url, download=True)
-            a_file = _pick_newest_by_template(dl_dir, "UD_", ("m4a", "mp3", "mp4"), min_mtime=ts_a)
-            if a_file and a_file == v_file:
-                a_file = None  # 音频检测不能命中视频文件
-            if not a_file:
-                # 排除视频文件后重新兜底
-                a_cands = []
-                for name in os.listdir(dl_dir):
-                    if not name.startswith("UD_"):
-                        continue
-                    ext = os.path.splitext(name)[1].lower().strip(".")
-                    if ext in ("m4a", "mp3", "mp4") and os.path.isfile(os.path.join(dl_dir, name)):
-                        p = os.path.join(dl_dir, name)
-                        if p != v_file:
-                            a_cands.append(p)
-                if a_cands:
-                    a_file = max(a_cands, key=os.path.getmtime)
-
-            if not v_file:
-                return _safe_json({"success": False, "error": "视频流下载失败(可能触发风控, 请重试或保持登录)"})
-            if not a_file:
-                # 音频流失败 → 至少交付无声视频
-                return _safe_json({"success": True, "filename": os.path.basename(v_file),
-                                   "path": v_file, "size_mb": round(os.path.getsize(v_file)/(1024*1024), 2),
-                                   "note": "音频流下载失败, 本次无声音"})
-
-            total = os.path.getsize(v_file) + (os.path.getsize(a_file) if a_file else 0)
-            return _safe_json({
-                "success": True, "needs_remux": True,
-                "filename": os.path.splitext(os.path.basename(v_file))[0],
-                "path": v_file, "files": [v_file, a_file],
-                "size_mb": round(total/(1024*1024), 2),
-            })
+            return _two_pass_streams(
+                url, dl_dir,
+                "bestvideo[vcodec^=avc1][height<=1080]/bestvideo[vcodec^=avc1]/bestvideo[vcodec^=avc1][ext=mp4]",
+                "bestaudio[ext=m4a]/bestaudio",
+                opts, progress_callback)
 
         elif "ixigua.com" in domain or "v.douyin.com" in domain:
             # 西瓜专管线（极简）：分享短链 302 → video_id → play API 直链 MP4（h264+aac 已拼好）
@@ -662,7 +668,15 @@ def download_video(url, progress_callback=None):
             if ixg:
                 return ixg
             if "v.douyin.com" in domain:
-                opts["format"] = "bv*+ba/b"  # 抖音降级：走 yt-dlp DouyinIE
+                # 抖音降级：走 yt-dlp DouyinIE（无 ffmpeg 时同样避免 bv*+ba 合并需求）
+                if has_ff:
+                    opts["format"] = "bv*+ba/b"
+                else:
+                    return _two_pass_streams(
+                        url, dl_dir,
+                        "bestvideo[ext=mp4]/bestvideo",
+                        "bestaudio[ext=m4a]/bestaudio",
+                        opts, progress_callback)
             else:
                 opts["format"] = "bestvideo*+bestaudio/best" if has_ff else "best"
                 opts["http_headers"] = {"Referer": "https://www.ixigua.com/", "Origin": "https://www.ixigua.com"}
@@ -670,9 +684,17 @@ def download_video(url, progress_callback=None):
             # 小红书直接用 requests 解析 HTML
             return _download_xhs(url, dl_dir, progress_callback)
         else:
-            # 通用：bv*+ba/b（新 yt-dlp 对 YouTube 无合并流，'best' 会直接
-            # Requested format is not available；bv*+ba/b 优先合成、/b 单流兜底）
-            opts["format"] = "bv*+ba/b"
+            # 通用/YouTube：新 yt-dlp 无合并流站点 'best' 直接报 not available。
+            # 按 _has_ffmpeg 分流（bv*+ba 无合并器时触发 Need merger，与 B站 ai.1.0.9 同款问题）：
+            # 有 ffmpeg → bestvideo+bestaudio/best 合并；无 ffmpeg → 两遍单流交 MediaMuxer
+            if has_ff:
+                opts["format"] = "bestvideo+bestaudio/best"
+            else:
+                return _two_pass_streams(
+                    url, dl_dir,
+                    "bestvideo[ext=mp4]/bestvideo",
+                    "bestaudio[ext=m4a]/bestaudio",
+                    opts, progress_callback)
 
         cf = _cookies_file(domain)
         if cf: opts["cookiefile"] = cf
