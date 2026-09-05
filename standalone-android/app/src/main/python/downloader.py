@@ -656,8 +656,9 @@ def download_video(url, progress_callback=None):
             # 小红书直接用 requests 解析 HTML
             return _download_xhs(url, dl_dir, progress_callback)
         else:
-            # 通用：best 单流
-            opts["format"] = "best"
+            # 通用：bv*+ba/b（新 yt-dlp 对 YouTube 无合并流，'best' 会直接
+            # Requested format is not available；bv*+ba/b 优先合成、/b 单流兜底）
+            opts["format"] = "bv*+ba/b"
 
         cf = _cookies_file(domain)
         if cf: opts["cookiefile"] = cf
