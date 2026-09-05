@@ -601,6 +601,33 @@ def analyze_url(url):
                     return xhs_result  # 返回错误（is_image=True 会让前端展示图片）
             # fall through to yt-dlp as last resort
 
+        # 抖音/西瓜特殊处理：识别阶段不跑 yt-dlp（DouyinIE/IxiguaIE 强依赖 fresh
+        # cookies，识别必失败 → btnDownload 永不 enable → 下载阶段直链管线死锁不可达）。
+        # 识别只需确认链接形态即放行，真实解析留给下载阶段直链管线（_douyin_direct/_ixigua_4k）。
+        if ("douyin.com" in domain or "iesdouyin.com" in domain or "ixigua.com" in domain):
+            label = "西瓜视频" if "ixigua.com" in domain else "抖音视频"
+            title = label
+            try:
+                # 尽力补可读标题：短链 302 展开（纯 302 无风控），失败不影响放行
+                page_url = _ixigua_shortlink_resolve(url)
+                m = (re.search(r"/video/(\d{15,})", page_url)
+                     or re.search(r"ixigua\.com/(?:video/)?(\d{15,})", page_url))
+                if m:
+                    if "xg/video" in page_url:
+                        label = "西瓜视频"  # v.douyin.com 落点 xg/video = 西瓜分享码
+                    title = f"{label}_{m.group(1)}"
+            except Exception:
+                pass
+            return _safe_json({
+                "success": True,
+                "title": title[:200],
+                "duration": 0,
+                "uploader": "",
+                "thumbnail": "",
+                "formats_count": 1,
+                "ext": "mp4",
+            })
+
         with YoutubeDL(opts) as ydl:
             info = ydl.extract_info(url, download=False)
 
