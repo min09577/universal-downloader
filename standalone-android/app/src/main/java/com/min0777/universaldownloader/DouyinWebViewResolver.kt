@@ -61,7 +61,10 @@ object DouyinWebViewResolver {
     /**
      * 解析抖音分享链接/长链 → video_id（v0xx）。失败返回 null。
      * 调用线程不限（内部投递主线程）；阻塞至拿到结果或超时。
+     * @JvmStatic 必需：Chaquopy 侧以 DouyinWebViewResolver.resolve(url) 静态形式调用，
+     * 无此注解会报 Unbound method（object 成员默认编译为 INSTANCE 上的实例方法）。
      */
+    @JvmStatic
     fun resolve(url: String): String? {
         if (Looper.myLooper() == Looper.getMainLooper()) {
             throw IllegalStateException("resolve() must not be called on main thread (would block UI)")
@@ -184,7 +187,8 @@ object DouyinWebViewResolver {
     private val VID_IN_PATH = Regex("/(v0[0-9a-zA-Z]{18,42})/")
     private val VID_IN_JSON = Regex("\\\\?\"(?:uri|video_id|vid)\\\\?\":\\\\?\"(v0[0-9a-zA-Z]{18,42})")
 
-    /** resolve 完成后由调用方在合适时机触发 WebView 回收（避免泄漏） */
+    /** resolve 完成后由调用方在合适时机触发 WebView 回收（避免泄漏）；@JvmStatic 同 resolve */
+    @JvmStatic
     fun cleanup() {
         destroyed.set(true)
         mainHandler.post {
