@@ -11,8 +11,8 @@ android {
         applicationId 'com.min0777.universaldownloader'
         minSdk 26
         targetSdk 34
-        versionCode 38
-        versionName 'ai.1.0.23'
+        versionCode 39
+        versionName 'ai.1.0.24'
 
         ndk {
             // ffmpeg-kit AAR 含4个ABI, packagingOptions 过滤后 APK 仅含这两个
