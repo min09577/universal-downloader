@@ -239,6 +239,122 @@ def _bili_4k(url, dl_dir, progress_callback=None):
         return None  # 任何异常 → 降级回 yt-dlp 旧路径
 
 
+# ========== 西瓜视频专管线（纯 Python 极简链路） ==========
+# 分享短链(v.douyin.com/v.ixigua.com) → 302 到 iesdouyin.com/xg/video/{item_id}
+# → 页面 regex 提取 video_id(v0xx...) → GET /aweme/v1/play/?video_id=...&ratio=1080p
+# → 302 douyinvod 直链 → 标准 MP4（h264+aac 已拼好），无需登录/签名/拼装。
+
+_IXIGUA_UA_PAGE = "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Mobile Safari/537.36"
+_IXIGUA_UA_PLAY = "com.ss.android.ugc.aweme/110101"
+
+
+def _ixigua_log(msg):
+    """降级可观测性：print 进 stdout，Chaquopy 桥接到 logcat（tag: python.stdout）"""
+    try:
+        print(f"[ixigua] {msg}", flush=True)
+    except Exception:
+        pass
+
+
+def _ixigua_shortlink_resolve(url):
+    """分享短链逐跳 302（最多 5 跳），返回最终页面 URL；失败原样返回"""
+    import requests as req
+    cur = url
+    try:
+        for _ in range(5):
+            r = req.get(cur, headers={"User-Agent": _IXIGUA_UA_PAGE},
+                        allow_redirects=False, stream=True, timeout=15)
+            loc = r.headers.get("Location")
+            r.close()
+            if not loc or r.status_code not in (301, 302, 303, 307, 308):
+                break
+            cur = loc if loc.startswith("http") else f"https://{urlparse(cur).netloc}{loc}"
+    except Exception as e:
+        _ixigua_log(f"shortlink resolve failed: {type(e).__name__}: {str(e)[:120]}")
+    return cur
+
+
+def _ixigua_4k(url, dl_dir, progress_callback=None):
+    """
+    西瓜极简管线：短链 302 → iesdouyin 页面 regex 提取 video_id → play API 302 直链
+    → requests 直下完整 MP4（音轨已拼好，needs_remux=False）。
+    任一步失败打 [ixigua] 日志并返回 None，调用方降级 yt-dlp 通用路径。
+    ratio=1080p 为服务端最高可用档（4K 片源亦从此口下发实际最优）。
+    """
+    _ixigua_log(f"enter: url={url[:80]}")
+    try:
+        import requests as req
+
+        # ① 短链 302 拿最终页（含 item_id）
+        page_url = _ixigua_shortlink_resolve(url)
+        m = re.search(r"/(?:xg/)?video/(\d{15,})", page_url)
+        if not m:
+            _ixigua_log("abort: no item id after resolve")
+            return None
+        item_id = m.group(1)
+
+        # ② 页面 regex 提取 video_id
+        headers = {"User-Agent": _IXIGUA_UA_PAGE, "Referer": "https://www.douyin.com/"}
+        resp = req.get(page_url, headers=headers, timeout=20)
+        resp.raise_for_status()
+        vids = re.findall(r'["\']?(v0[0-9a-zA-Z]{18,})["\']?', resp.text)
+        if not vids:
+            _ixigua_log("abort: no video_id in page (deleted/risk?)")
+            return None
+        vid = vids[0]
+        _ixigua_log(f"item_id={item_id} video_id={vid[:20]}...")
+
+        # ③ play API → 302 直链
+        api = f"https://www.iesdouyin.com/aweme/v1/play/?video_id={vid}&ratio=1080p&line=0"
+        r2 = req.get(api, headers={"User-Agent": _IXIGUA_UA_PLAY}, allow_redirects=False, timeout=15)
+        direct = r2.headers.get("Location") or api
+        if r2.status_code not in (301, 302, 303, 307, 308):
+            _ixigua_log(f"abort: play api no redirect ({r2.status_code})")
+            return None
+
+        safe_title = f"ixigua_{item_id}"
+        out_file = os.path.join(dl_dir, f"UD_{safe_title}.mp4")
+
+        def _cb(done, total):
+            if progress_callback and total:
+                try:
+                    progress_callback(min(int(done * 99 / total), 99), f"{done/1048576:.1f}MB")
+                except Exception:
+                    pass
+
+        # ④ 直下完整 MP4（复用重试逻辑）
+        if not _requests_download_retry(direct, out_file,
+                                        {"User-Agent": _IXIGUA_UA_PLAY, "Referer": "https://www.ixigua.com/"},
+                                        progress_cb=_cb):
+            return None
+        if progress_callback:
+            try:
+                progress_callback(100, "处理中...")
+            except Exception:
+                pass
+
+        size = os.path.getsize(out_file)
+        if size < 100 * 1024:
+            _ixigua_log(f"file too small ({size}B), suspected risk response")
+            try:
+                os.remove(out_file)
+            except Exception:
+                pass
+            return None
+        _ixigua_log(f"ok: {size/1048576:.1f}MB direct mp4 (h264+aac muxed)")
+        return _safe_json({
+            "success": True,
+            "needs_remux": False,  # 服务端已拼好音轨
+            "filename": f"{safe_title}.mp4",
+            "path": out_file,
+            "size_mb": round(size / (1024 * 1024), 2),
+            "note": "ixigua 极简直链 (ratio=1080p)",
+        })
+    except Exception as e:
+        _ixigua_log(f"exception: {type(e).__name__}: {str(e)[:200]}")
+        return None
+
+
 def _cookies_file(domain):
     """创建临时 cookies 文件"""
     c = _get_cookies(domain)
@@ -286,6 +402,14 @@ def normalize_url(url):
         av = re.search(r'av(\d+)', url, re.IGNORECASE)
         if av:
             return f"https://www.bilibili.com/video/av{av.group(1)}"
+
+    # 西瓜/字节分享链: v.ixigua.com 与 v.douyin.com 分享码 → 由 _ixigua_4k 内部 302 解析
+    # （短链码≠item_id，需网络跳转；此处透传不做破坏性改写）
+    if "ixigua.com" in netloc:
+        m = re.search(r'ixigua\.com/(?:video/)?(\d{6,})', url)
+        if m:
+            return f"https://www.ixigua.com/{m.group(1)}"
+        return url  # v.ixigua.com 分享码等
 
     return url
 
@@ -520,6 +644,14 @@ def download_video(url, progress_callback=None):
                 "size_mb": round(total/(1024*1024), 2),
             })
 
+        elif "ixigua.com" in domain:
+            # 西瓜专管线（极简）：分享短链 302 → video_id → play API 直链 MP4（h264+aac 已拼好）
+            # 失败自动降级 yt-dlp IxiguaIE（SSR 路径同源，强依赖 cookie）
+            ixg = _ixigua_4k(url, dl_dir, progress_callback)
+            if ixg:
+                return ixg
+            opts["format"] = "bestvideo*+bestaudio/best" if has_ff else "best"
+            opts["http_headers"] = {"Referer": "https://www.ixigua.com/", "Origin": "https://www.ixigua.com"}
         elif "xiaohongshu.com" in domain or "xhslink.com" in domain or "xhslink.cn" in domain:
             # 小红书直接用 requests 解析 HTML
             return _download_xhs(url, dl_dir, progress_callback)
@@ -985,6 +1117,7 @@ def detect_platform(url):
     url_lower = url.lower()
     platforms = {
         "bilibili": ["bilibili.com", "b23.tv"],
+        "ixigua": ["ixigua.com", "v.douyin.com"],
         "youtube": ["youtube.com", "youtu.be"],
         "douyin": ["douyin.com", "tiktok.com"],
         "kuaishou": ["kuaishou.com"],
