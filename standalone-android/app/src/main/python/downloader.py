@@ -289,19 +289,29 @@ def _ixigua_4k(url, dl_dir, progress_callback=None):
         page_url = _ixigua_shortlink_resolve(url)
         m = re.search(r"/(?:xg/)?video/(\d{15,})", page_url)
         if not m:
+            # 标准长链两种形态：ixigua.com/{id}（无 video/ 前缀）与 ixigua.com/video/{id}
+            m = re.search(r"ixigua\.com/(?:video/)?(\d{15,})", page_url)
+        if not m:
             _ixigua_log("abort: no item id after resolve")
             return None
         item_id = m.group(1)
 
         # ② 页面 regex 提取 video_id
+        # 标准长链直访会被 jsvmp 风控壳拦截（分享链 302 落点 iesdouyin 无此拦截），
+        # 统一改走 iesdouyin 移动页：m.ixigua.com 与 iesdouyin/xg/video 同源同构
+        page = page_url
+        if "iesdouyin.com" not in page_url:
+            page = f"https://www.iesdouyin.com/xg/video/{item_id}/"
         headers = {"User-Agent": _IXIGUA_UA_PAGE, "Referer": "https://www.douyin.com/"}
-        resp = req.get(page_url, headers=headers, timeout=20)
+        resp = req.get(page, headers=headers, timeout=20)
         resp.raise_for_status()
-        vids = re.findall(r'["\']?(v0[0-9a-zA-Z]{18,})["\']?', resp.text)
+        # 优先 video_id 上下文命中（页面含封面 vid 等干扰串，无上下文匹配会选错）
+        vm = re.search(r'video_id["\':= ]{1,4}(v0[0-9a-zA-Z]{18,})', resp.text)
+        vid = vm.group(1) if vm else None
+        vids = [vid] if vid else []
         if not vids:
             _ixigua_log("abort: no video_id in page (deleted/risk?)")
             return None
-        vid = vids[0]
         _ixigua_log(f"item_id={item_id} video_id={vid[:20]}...")
 
         # ③ play API → 302 直链
@@ -644,14 +654,18 @@ def download_video(url, progress_callback=None):
                 "size_mb": round(total/(1024*1024), 2),
             })
 
-        elif "ixigua.com" in domain:
+        elif "ixigua.com" in domain or "v.douyin.com" in domain:
             # 西瓜专管线（极简）：分享短链 302 → video_id → play API 直链 MP4（h264+aac 已拼好）
-            # 失败自动降级 yt-dlp IxiguaIE（SSR 路径同源，强依赖 cookie）
+            # v.douyin.com 分享码既可能是抖音也可能是西瓜：统一先走西瓜管线 302 解析，
+            # 解析出 /xg/video/ 即西瓜直链成功；失败降级 yt-dlp（抖音路径/西瓜 IxiguaIE）
             ixg = _ixigua_4k(url, dl_dir, progress_callback)
             if ixg:
                 return ixg
-            opts["format"] = "bestvideo*+bestaudio/best" if has_ff else "best"
-            opts["http_headers"] = {"Referer": "https://www.ixigua.com/", "Origin": "https://www.ixigua.com"}
+            if "v.douyin.com" in domain:
+                opts["format"] = "bv*+ba/b"  # 抖音降级：走 yt-dlp DouyinIE
+            else:
+                opts["format"] = "bestvideo*+bestaudio/best" if has_ff else "best"
+                opts["http_headers"] = {"Referer": "https://www.ixigua.com/", "Origin": "https://www.ixigua.com"}
         elif "xiaohongshu.com" in domain or "xhslink.com" in domain or "xhslink.cn" in domain:
             # 小红书直接用 requests 解析 HTML
             return _download_xhs(url, dl_dir, progress_callback)
